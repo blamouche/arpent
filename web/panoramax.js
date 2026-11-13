@@ -73,11 +73,15 @@ export class Client {
     return this.json('api/users/me', { headers: this.headers() });
   }
 
-  createUploadSet(title, estimatedFiles) {
+  /** visibility : `owner-only` pour un envoi privé (test), sinon visibilité par défaut du compte. */
+  createUploadSet(title, estimatedFiles, visibility = null) {
     return this.json('api/upload_sets', {
       method: 'POST',
       headers: this.headers({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify({ title, estimated_nb_files: estimatedFiles, sort_method: 'time-asc' }),
+      body: JSON.stringify({
+        title, estimated_nb_files: estimatedFiles, sort_method: 'time-asc',
+        ...(visibility ? { visibility } : {}),
+      }),
     });
   }
 

@@ -23,6 +23,8 @@ Alternative (non utilisée) : `POST /api/users/me/tokens` crée un jeton directe
 ```json
 { "title": "Séquence du 13 nov. 2026", "estimated_nb_files": 42, "sort_method": "time-asc" }
 ```
+Arpent Web envoie `"visibility": "owner-only"` quand l'option *Envoi privé (test)* est cochée ; sinon le champ est omis (visibilité par défaut du compte). Les valeurs acceptées par une instance sont dans `GET /api/configuration` → `visibility.possible_values` (OSM France : `anyone`, `owner-only`).
+
 Champs optionnels utiles : `split_distance`, `split_time`, `no_split`, `duplicate_distance`, `duplicate_rotation`, `no_deduplication`, `relative_heading` (0 = vers l'avant, -90 = gauche, 90 = droite), `visibility` (`anyone`, `logged-only`, `owner-only`), `semantics`, `metadata`.
 Réponse 200 : `{ id, completed, dispatched, ready, nb_items, links, … }`.
 

@@ -47,6 +47,7 @@ const DEFAULTS = {
   minDistance: 4,     // mètres
   maxAccuracy: 20,    // mètres
   deleteAfterUpload: false,
+  privateUpload: false, // envoi privé (owner-only) pour tester sans publier
 };
 
 const settings = {
@@ -122,10 +123,12 @@ async function sendSequence(id, client) {
   const pending = photos.filter((p) => !p.uploaded);
   if (!pending.length) return;
 
-  // Nouvel upload set si aucun, si l'instance a changé ou si le précédent est déjà terminé.
-  if (!seq.uploadSetId || seq.uploadInstance !== client.base || seq.uploadCompleted) {
-    const set = await client.createUploadSet(seq.name, pending.length);
-    Object.assign(seq, { uploadSetId: set.id, uploadInstance: client.base, uploadCompleted: false });
+  // Nouvel upload set si aucun, si l'instance ou la visibilité a changé, ou si le précédent est terminé.
+  const visibility = settings.privateUpload ? 'owner-only' : null;
+  if (!seq.uploadSetId || seq.uploadInstance !== client.base || seq.uploadCompleted
+      || (seq.uploadVisibility ?? null) !== visibility) {
+    const set = await client.createUploadSet(seq.name, pending.length, visibility);
+    Object.assign(seq, { uploadSetId: set.id, uploadInstance: client.base, uploadCompleted: false, uploadVisibility: visibility });
     await db.putSequence(seq);
   }
 
@@ -219,7 +222,8 @@ const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.p
 function statusLabel(seq, total, pending) {
   if (!total) return 'vide';
   if (pending) return `${pending} à envoyer`;
-  return seq.uploadCompleted ? 'envoyée' : 'à envoyer';
+  if (!seq.uploadCompleted) return 'à envoyer';
+  return seq.uploadVisibility === 'owner-only' ? 'envoyée (privée)' : 'envoyée';
 }
 
 async function renderList() {
@@ -260,7 +264,7 @@ async function renderList() {
         </div>`}
     </main>
     <footer class="actions">
-      ${anyPending ? '<button class="secondary" id="sendAll" data-upload-btn>Tout envoyer</button>' : ''}
+      ${anyPending ? `<button class="secondary" id="sendAll" data-upload-btn>Tout envoyer${settings.privateUpload ? ' (privé)' : ''}</button>` : ''}
       <button class="primary" id="new">Nouvelle séquence</button>
     </footer>`;
 
@@ -596,7 +600,7 @@ async function renderDetail(id) {
     <footer class="actions">
       <button class="danger" id="delete">Supprimer</button>
       <button class="secondary" id="resume">Reprendre</button>
-      ${pending ? '<button class="primary" id="send" data-upload-btn>Envoyer</button>' : ''}
+      ${pending ? `<button class="primary" id="send" data-upload-btn>Envoyer${settings.privateUpload ? ' (privé)' : ''}</button>` : ''}
     </footer>`;
 
   // Vignettes chargées à la demande.
@@ -695,6 +699,8 @@ async function renderSettings() {
               <div class="row"><button class="primary" id="check">J’ai terminé, vérifier</button><button class="secondary" id="cancel">Annuler</button></div>`
           : `<p class="hint">La connexion se fait sur le site de l’instance (compte OpenStreetMap ou autre). Aucun mot de passe n’est saisi ici.</p>
               <button class="primary" id="login">Se connecter</button>`}
+        <label class="check"><input id="privateUpload" type="checkbox" ${settings.privateUpload ? 'checked' : ''}>Envoi privé (test)</label>
+        <p class="hint">Les séquences envoyées ne sont visibles que par vous sur Panoramax : pratique pour tester sans rien publier. Supprimez-les ensuite depuis votre compte sur le site de l’instance.</p>
       </section>
       <section>
         <h2>Mode auto</h2>
@@ -730,6 +736,7 @@ async function renderSettings() {
     };
   }
   $('#deleteAfterUpload').onchange = (e) => { settings.deleteAfterUpload = e.target.checked; settings.save(); };
+  $('#privateUpload').onchange = (e) => { settings.privateUpload = e.target.checked; settings.save(); };
   $('#resetDemo')?.addEventListener('click', async () => {
     if (!DEMO || !confirm('Effacer toutes les séquences de démo et recharger la séquence d’exemple ?')) return;
     await demoData.resetDemo();

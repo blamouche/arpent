@@ -8,6 +8,7 @@ Version web (PWA) d'Arpent : on ouvre une URL sur iPhone ou Android, on capture 
 - EXIF complet écrit dans le JPEG (GPS, altitude, précision, cap, vitesse, date avec millisecondes et fuseau).
 - Photos stockées sur le téléphone (IndexedDB), l'app s'ouvre hors ligne (service worker).
 - Connexion par « jeton réclamé » sur le site de l'instance, envoi reprenable.
+- **Envoi privé (test)** dans les réglages : les séquences sont envoyées en visibilité `owner-only`, visibles par vous seul sur Panoramax.
 
 ## Lancer en local
 
@@ -35,6 +36,16 @@ La caméra et le GPS exigent **HTTPS**. Deux options :
 - **Tunnel** vers le serveur local, par exemple `cloudflared tunnel --url http://localhost:8137`, puis ouvrir l'URL https affichée sur le téléphone.
 
 Sur iPhone, **ajouter à l'écran d'accueil** (Partager → Sur l'écran d'accueil) : sinon Safari peut effacer les photos après 7 jours sans visite.
+
+## Tester l'envoi sur une vraie instance
+
+Il n'existe pas d'instance Panoramax publique de test. Pour essayer l'envoi de bout en bout sans rien publier :
+
+1. Passer en **Live**, puis dans les réglages se connecter à `panoramax.openstreetmap.fr` et cocher **Envoi privé (test)**.
+2. Capturer une courte séquence et l'envoyer : le bouton affiche « Envoyer (privé) » et la séquence devient « envoyée (privée) ».
+3. Vérifier la séquence sur le site de l'instance (connecté), puis la supprimer depuis votre compte.
+
+L'instance OSM France accepte `anyone` et `owner-only` (`GET /api/configuration` → `visibility.possible_values`).
 
 ## Fichiers
 
