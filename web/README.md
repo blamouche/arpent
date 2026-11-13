@@ -2,7 +2,8 @@
 
 Version web (PWA) d'Arpent : on ouvre une URL sur iPhone ou Android, on capture une séquence, puis on l'envoie sur Panoramax. Même parcours et mêmes règles que l'app iOS, sans App Store.
 
-- HTML/CSS/JS statiques, **aucune dépendance**, aucun build, aucun serveur à soi : l'API Panoramax accepte les appels depuis un navigateur (CORS).
+- HTML/CSS/JS statiques, aucun build, aucun serveur à soi : l'API Panoramax accepte les appels depuis un navigateur (CORS). Seule bibliothèque : [Leaflet](https://leafletjs.com) 1.9.4 (BSD-2), embarquée dans `vendor/` pour fonctionner hors ligne.
+- Carte OpenStreetMap de chaque séquence : trace, un point par photo (départ vert, arrivée rouge) ; toucher un point ouvre la photo.
 - Mode auto temps + distance, déclencheur manuel, indicateur GPS, écran maintenu allumé.
 - EXIF complet écrit dans le JPEG (GPS, altitude, précision, cap, vitesse, date avec millisecondes et fuseau).
 - Photos stockées sur le téléphone (IndexedDB), l'app s'ouvre hors ligne (service worker).
@@ -46,6 +47,7 @@ Sur iPhone, **ajouter à l'écran d'accueil** (Partager → Sur l'écran d'accue
 | `exif.js` | segment EXIF/GPS inséré dans le JPEG sans recompression |
 | `db.js` | IndexedDB : séquences, métadonnées des photos, images |
 | `panoramax.js` | client API (routes identiques à l'app iOS) |
+| `vendor/leaflet/` | Leaflet 1.9.4 (carte), licence BSD-2 incluse |
 | `sw.js`, `manifest.webmanifest`, `icons/` | PWA installable et hors ligne |
 
 ## Ce qui a été vérifié

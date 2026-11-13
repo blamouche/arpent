@@ -444,25 +444,52 @@ async function renderCapture(id) {
 
 // ---------- Écran : détail d'une séquence ----------
 
-function trackSVG(photos) {
-  if (!photos.length) return '';
-  const lat0 = photos.reduce((s, p) => s + p.latitude, 0) / photos.length;
-  const k = Math.cos((lat0 * Math.PI) / 180);
-  const pts = photos.map((p) => [p.longitude * k, p.latitude]);
-  const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
-  const [minX, maxX, minY, maxY] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
-  const W = 320, H = 160, P = 14;
-  const span = Math.max(maxX - minX, maxY - minY, 1e-6);
-  const s = Math.min((W - 2 * P) / Math.max(maxX - minX, span * 0.01), (H - 2 * P) / Math.max(maxY - minY, span * 0.01));
-  const ox = (W - (maxX - minX) * s) / 2, oy = (H - (maxY - minY) * s) / 2;
-  const xy = pts.map(([x, y]) => [ox + (x - minX) * s, H - (oy + (y - minY) * s)]);
-  const line = xy.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
-  const [sx, sy] = xy[0], [ex, ey] = xy.at(-1);
-  return `<svg class="track" viewBox="0 0 ${W} ${H}" role="img" aria-label="Tracé du parcours">
-    <polyline points="${line}" />
-    <circle cx="${sx}" cy="${sy}" r="5" class="start" />
-    <circle cx="${ex}" cy="${ey}" r="5" class="end" />
-  </svg>`;
+let leafletPromise = null;
+
+/** Leaflet (embarqué dans vendor/) chargé à la première carte affichée. */
+function loadLeaflet() {
+  leafletPromise ??= new Promise((resolve, reject) => {
+    if (window.L) { resolve(window.L); return; }
+    const script = document.createElement('script');
+    script.src = 'vendor/leaflet/leaflet.js';
+    script.onload = () => resolve(window.L);
+    script.onerror = () => { leafletPromise = null; reject(new Error('Carte indisponible.')); };
+    document.head.append(script);
+  });
+  return leafletPromise;
+}
+
+/** Carte OSM : trace de la séquence et un point par photo (départ vert, arrivée rouge). */
+async function trackMap(container, photos, onPick) {
+  const L = await loadLeaflet();
+  const css = getComputedStyle(document.documentElement);
+  const color = (name) => css.getPropertyValue(name).trim();
+  const map = L.map(container, { scrollWheelZoom: false });
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">contributeurs OpenStreetMap</a>',
+  }).addTo(map);
+
+  const points = photos.map((p) => [p.latitude, p.longitude]);
+  L.polyline(points, { color: color('--accent'), weight: 4, opacity: 0.8 }).addTo(map);
+  const last = photos.length - 1;
+  photos.forEach((p, i) => {
+    const edge = i === 0 || i === last;
+    L.circleMarker([p.latitude, p.longitude], {
+      radius: edge ? 7 : 5,
+      color: '#ffffff',
+      weight: 2,
+      fillColor: i === 0 ? color('--done') : i === last ? color('--danger') : color('--accent'),
+      fillOpacity: 1,
+    })
+      .bindTooltip(`Photo ${i + 1}/${photos.length} · ${new Date(p.capturedAt).toLocaleTimeString('fr-FR')}`)
+      .on('click', () => onPick(p))
+      .addTo(map);
+  });
+
+  if (points.length === 1) map.setView(points[0], 18);
+  else map.fitBounds(points, { padding: [24, 24], maxZoom: 19 });
+  return map;
 }
 
 async function renderDetail(id) {
@@ -481,7 +508,7 @@ async function renderDetail(id) {
     </header>
     <main class="page">
       <input class="title" id="name" value="${esc(seq.name)}" aria-label="Nom de la séquence">
-      ${trackSVG(photos)}
+      ${photos.length ? '<div class="map" id="map" role="region" aria-label="Carte du parcours"></div>' : ''}
       <p class="meta">${photos.length} photo${photos.length > 1 ? 's' : ''} · ${(meters / 1000).toFixed(2)} km · ${minutes} min ·
         <span class="${pending ? 'pending' : 'done'}">${statusLabel(seq, photos.length, pending)}</span></p>
       <progress data-progress="${id}" max="1" hidden></progress>
@@ -509,7 +536,15 @@ async function renderDetail(id) {
     }
   });
   app.querySelectorAll('.thumb').forEach((el) => io.observe(el));
-  cleanup = () => { io.disconnect(); urls.forEach(URL.revokeObjectURL); };
+  // Carte chargée sans bloquer l'affichage ; retirée en quittant l'écran.
+  let map = null, closed = false;
+  const mapEl = app.querySelector('#map');
+  if (mapEl) {
+    trackMap(mapEl, photos, openViewer)
+      .then((m) => { if (closed) m.remove(); else map = m; })
+      .catch((e) => { mapEl.classList.add('map-error'); mapEl.textContent = e.message; });
+  }
+  cleanup = () => { closed = true; map?.remove(); io.disconnect(); urls.forEach(URL.revokeObjectURL); };
 
   app.querySelector('#name').onchange = async (e) => {
     const name = e.target.value.trim();
