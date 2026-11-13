@@ -13,6 +13,16 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <script>
+    // Mode (démo par défaut) appliqué avant l'affichage : thème et couleur de barre d'état.
+    (function () {
+      var p = new URLSearchParams(location.search), m = p.has('live') ? 'live' : p.has('demo') ? 'demo' : null;
+      try { m = m || localStorage.getItem('arpent.mode'); } catch (e) {}
+      m = m === 'live' ? 'live' : 'demo';
+      document.documentElement.dataset.mode = m;
+      document.querySelector('meta[name=theme-color]').content = m === 'live' ? '#0f6b4f' : '#5b47c7';
+    })();
+  </script>
   <link rel="stylesheet" href="style.css">
   <script type="module" src="app.js"></script>
 </head>

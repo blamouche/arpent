@@ -29,6 +29,29 @@
   }
 }
 
+/* Mode démo : thème violet « bac à sable », pour ne jamais confondre avec le mode live (vert). */
+:root[data-mode="demo"] {
+  --bg: #f6f5fb;
+  --surface: #ffffff;
+  --text: #1d1a2b;
+  --muted: #67627a;
+  --line: #e2dff0;
+  --accent: #5b47c7;
+  --accent-text: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-mode="demo"] {
+    --bg: #13111b;
+    --surface: #1c1928;
+    --text: #ebe8f5;
+    --muted: #a29cb8;
+    --line: #2f2b40;
+    --accent: #a597ff;
+    --accent-text: #1a1440;
+  }
+}
+
 * { box-sizing: border-box; }
 
 html, body {
@@ -79,6 +102,7 @@ button:disabled { opacity: .5; cursor: default; }
 .bar h1 { flex: 1; margin: 0; font-size: 20px; }
 .bar .back { text-decoration: none; font-weight: 500; }
 .bar .back + h1 { font-size: 17px; text-align: center; margin-right: 80px; }
+.bar .back + h1:not(:last-child) { margin-right: 0; }
 .icon-btn { color: var(--text); display: inline-flex; padding: 6px; }
 
 .page {
@@ -353,4 +377,50 @@ progress { width: 100%; height: 6px; accent-color: var(--accent); }
   font-weight: 600;
 }
 .mode button[aria-checked="true"] { background: var(--accent); color: var(--accent-text); }
-.mode button[data-demo="true"][aria-checked="true"] { background: var(--pending); color: var(--surface); }
+
+/* ---------- Pastille de mode et point « record » ---------- */
+
+.mode button .rec { margin-right: 6px; vertical-align: 0; }
+.mode button[data-demo="false"][aria-checked="true"] {
+  color: #e5251b;
+  background: color-mix(in srgb, #ff3b30 14%, var(--surface));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #ff3b30 45%, transparent);
+}
+
+.mode-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.mode-badge.live { color: #e5251b; background: color-mix(in srgb, #ff3b30 12%, var(--surface)); }
+.mode-badge.demo { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--surface)); }
+.capture .mode-badge { margin-left: 0; background: #0009; }
+.capture .mode-badge.live { color: #fff; }
+.capture .mode-badge.demo { color: #c9c0ff; }
+
+.rec {
+  display: inline-block;
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ff3b30;
+  animation: rec 1.4s ease-in-out infinite;
+}
+@keyframes rec {
+  0% { opacity: 1; box-shadow: 0 0 0 0 rgba(255, 59, 48, .6); }
+  50% { opacity: .35; }
+  70% { box-shadow: 0 0 0 7px rgba(255, 59, 48, 0); }
+  100% { opacity: 1; box-shadow: 0 0 0 0 rgba(255, 59, 48, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rec { animation: none; }
+}

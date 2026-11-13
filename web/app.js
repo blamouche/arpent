@@ -237,7 +237,7 @@ async function renderList() {
       <h1>Arpent</h1>
       <div class="mode" role="radiogroup" aria-label="Mode">
         <button role="radio" aria-checked="${DEMO}" data-demo="true">Démo</button>
-        <button role="radio" aria-checked="${!DEMO}" data-demo="false">Live</button>
+        <button role="radio" aria-checked="${!DEMO}" data-demo="false">${DEMO ? '' : '<span class="rec" aria-hidden="true"></span>'}Live</button>
       </div>
       <a href="#/settings" class="icon-btn" aria-label="Réglages">${ICON_GEAR}</a>
     </header>
@@ -297,6 +297,7 @@ async function renderCapture(id) {
       <video playsinline muted autoplay></video>
       <div class="flash"></div>
       <div class="top">
+        ${modeBadge()}
         <span class="gps none">GPS…</span>
         <span class="count"></span>
         <button class="pill" id="close">Terminer</button>
@@ -453,6 +454,7 @@ async function renderDetail(id) {
   app.innerHTML = `
     <header class="bar">
       <a href="#/" class="back">‹ Séquences</a>
+      ${modeBadge()}
     </header>
     <main class="page">
       <input class="title" id="name" value="${esc(seq.name)}" aria-label="Nom de la séquence">
@@ -545,6 +547,7 @@ async function renderSettings() {
     <header class="bar">
       <a href="#/" class="back">‹ Séquences</a>
       <h1>Réglages</h1>
+      ${modeBadge()}
     </header>
     <main class="page form">
       <section>
@@ -597,6 +600,13 @@ async function renderSettings() {
   $('#check')?.addEventListener('click', () => auth.checkPending({ silent: false }));
   $('#cancel')?.addEventListener('click', () => { store.set('arpent.pendingAuth', null); render(); });
   $('#logout')?.addEventListener('click', () => { auth.logout(); render(); });
+}
+
+/** Pastille de mode en haut des écrans : point rouge « record » animé en live. */
+function modeBadge() {
+  return DEMO
+    ? '<span class="mode-badge demo">Démo</span>'
+    : '<span class="mode-badge live" role="status" aria-label="Mode live"><span class="rec" aria-hidden="true"></span>Live</span>';
 }
 
 const ICON_GEAR = '<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-1.7-1L15 3.4h-4L10.7 6a7 7 0 0 0-1.7 1l-2.4-1-2 3.4L6.6 11a7.6 7.6 0 0 0 0 2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 1.7 1l.3 2.6h4l.3-2.6a7 7 0 0 0 1.7-1l2.4 1 2-3.4zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg>';

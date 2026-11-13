@@ -20,8 +20,8 @@ Puis ouvrir <http://localhost:8137/>.
 
 Un interrupteur **Démo / Live** en haut de la liste des séquences choisit le mode. Le choix est gardé sur l'appareil ; `?demo` ou `?live` dans l'URL le force.
 
-- **Démo (par défaut)** : la position (marche avec des arrêts) et la caméra (mire) sont simulées, les données vont dans une base séparée et l'envoi est bloqué.
-- **Live** : vraie caméra, vrai GPS, boussole et envoi sur Panoramax.
+- **Démo (par défaut)**, thème violet : la position (marche avec des arrêts) et la caméra (mire) sont simulées, les données vont dans une base séparée et l'envoi est bloqué.
+- **Live**, thème vert : vraie caméra, vrai GPS, boussole et envoi sur Panoramax. Un point rouge « enregistrement » clignote en haut de chaque écran.
 
 ## Tester sur un téléphone
 
