@@ -8,6 +8,7 @@ Version web (PWA) d'Arpent : on ouvre une URL sur iPhone ou Android, on capture 
 - EXIF complet écrit dans le JPEG (GPS, altitude, précision, cap, vitesse, date avec millisecondes et fuseau).
 - Photos stockées sur le téléphone (IndexedDB), l'app s'ouvre hors ligne (service worker).
 - Connexion par « jeton réclamé » sur le site de l'instance, envoi reprenable.
+- Une fois une séquence envoyée, son détail affiche un **lien vers la séquence sur Panoramax** (`<instance>/sequence/<id>`), ou un lien par séquence si le serveur l'a découpée.
 - **Envoi privé (test)** dans les réglages : les séquences sont envoyées en visibilité `owner-only`, visibles par vous seul sur Panoramax.
 
 ## Lancer en local

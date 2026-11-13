@@ -2,7 +2,7 @@
 import * as db from './db.js';
 import { buildExifSegment, withExif } from './exif.js';
 import * as demoData from './demo-data.js';
-import { Client, NotLoggedIn, normalizeInstance } from './panoramax.js';
+import { Client, NotLoggedIn, normalizeInstance, sequencePageURL } from './panoramax.js';
 import {
   DEMO, LocationService, CompassService, CameraService, distance, keepAwake, requestCompassPermission, setMode,
 } from './sensors.js';
@@ -594,6 +594,7 @@ async function renderDetail(id) {
       <p class="meta">${photos.length} photo${photos.length > 1 ? 's' : ''} · ${(meters / 1000).toFixed(2)} km · ${minutes} min ·
         <span class="${pending ? 'pending' : 'done'}">${statusLabel(seq, photos.length, pending)}</span></p>
       <progress data-progress="${id}" max="1" hidden></progress>
+      ${seq.uploadCompleted && seq.uploadSetId ? '<p class="hint" id="pmx-link">Recherche de la séquence sur Panoramax…</p>' : ''}
       ${seq.source ? `<p class="hint">Photos : ${esc(seq.source.author)}, licence <a href="${esc(seq.source.licenseURL)}" target="_blank" rel="noopener">${esc(seq.source.license)}</a>, <a href="${esc(seq.source.url)}" target="_blank" rel="noopener">voir sur Panoramax</a>.</p>` : ''}
       <div class="grid">${photos.map((p) => `<button class="thumb ${p.uploaded ? 'uploaded' : ''}" data-id="${p.id}" aria-label="Photo ${esc(p.fileName)}"></button>`).join('')}</div>
     </main>
@@ -641,6 +642,7 @@ async function renderDetail(id) {
     await db.deleteSequence(id);
     location.hash = '#/';
   };
+  if (seq.uploadCompleted && seq.uploadSetId) showPanoramaxLink(seq);
   const send = app.querySelector('#send');
   if (send) send.onclick = () => uploadSequence(id);
 
@@ -648,6 +650,45 @@ async function renderDetail(id) {
     const btn = e.target.closest('.thumb');
     if (btn) openViewer(photos.find((p) => p.id === btn.dataset.id));
   };
+}
+
+/**
+ * Lien vers la séquence publiée. Le serveur crée la ou les séquences (collections) après l'envoi,
+ * parfois avec un délai : on interroge l'upload set et on garde le résultat une fois connu.
+ */
+async function showPanoramaxLink(seq) {
+  const el = document.getElementById('pmx-link');
+  if (!el) return;
+  const instance = seq.uploadInstance;
+  const privateNote = seq.uploadVisibility === 'owner-only' ? ' (privée : visible une fois connecté sur le site)' : '';
+  const render = (collections) => {
+    const links = collections.map((c, i) => `<a href="${esc(sequencePageURL(instance, c.id))}" target="_blank" rel="noopener">${
+      collections.length > 1 ? `séquence ${i + 1} (${c.nb_items} photo${c.nb_items > 1 ? 's' : ''})` : 'Voir la séquence sur Panoramax'}</a>`);
+    el.innerHTML = collections.length > 1
+      ? `Sur Panoramax, découpée en ${collections.length} séquences : ${links.join(', ')}${esc(privateNote)}.`
+      : `${links[0]}${esc(privateNote)}.`;
+  };
+  if (seq.collections?.length) { render(seq.collections); return; }
+
+  try {
+    const a = store.get('arpent.auth', null);
+    const token = a && a.instance === instance ? a.jwt : null;
+    const set = await new Client(instance, token).getUploadSet(seq.uploadSetId);
+    const collections = (set.associated_collections ?? []).map((c) => ({ id: c.id, nb_items: c.nb_items }));
+    if (!document.body.contains(el)) return;
+    if (collections.length) {
+      await db.putSequence({ ...(await db.getSequence(seq.id)), collections });
+      render(collections);
+    } else {
+      el.innerHTML = 'Séquence en cours de traitement sur Panoramax. <a href="#" id="pmx-retry">Actualiser</a>';
+      document.getElementById('pmx-retry').onclick = (e) => { e.preventDefault(); el.textContent = 'Recherche de la séquence sur Panoramax…'; showPanoramaxLink(seq); };
+    }
+  } catch (e) {
+    if (!document.body.contains(el)) return;
+    el.textContent = e.status === 401 || e.status === 403 || e instanceof NotLoggedIn
+      ? 'Connectez-vous à l’instance dans les réglages pour afficher le lien vers la séquence.'
+      : `Lien vers Panoramax indisponible (${e.message}).`;
+  }
 }
 
 async function openViewer(photo) {

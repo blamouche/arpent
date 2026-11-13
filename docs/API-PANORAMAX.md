@@ -47,8 +47,8 @@ Les noms de fichiers doivent être uniques dans un upload set.
 ### 3. Terminer
 `POST /api/upload_sets/{id}/complete`. Sans cet appel, les photos ne deviennent pas publiques.
 
-### 4. Suivi (pas encore dans l'UI)
-- `GET /api/upload_sets/{id}` → `ready`, `items_status`, `associated_collections`
+### 4. Suivi
+- `GET /api/upload_sets/{id}` → `ready`, `items_status`, `associated_collections`. Arpent Web s'en sert pour afficher le lien vers la ou les séquences créées (`<instance>/sequence/<collection id>`) ; tant que la liste est vide, la séquence est « en cours de traitement ».
 - `GET /api/upload_sets/{id}/files` → statut par fichier, champ `rejected` avec la raison
 - `GET /api/users/me/upload_sets`
 

@@ -101,4 +101,13 @@ export class Client {
   completeUploadSet(uploadSetId) {
     return this.json(`api/upload_sets/${uploadSetId}/complete`, { method: 'POST', headers: this.headers() });
   }
+
+  /** État d'un upload set, dont `associated_collections` (séquences créées par le serveur). */
+  getUploadSet(uploadSetId) {
+    const headers = this.token ? this.headers() : { Accept: 'application/json' };
+    return this.json(`api/upload_sets/${uploadSetId}`, { headers });
+  }
 }
+
+/** Page publique d'une séquence sur le site de l'instance. */
+export const sequencePageURL = (instance, collectionId) => `${instance}/sequence/${collectionId}`;
