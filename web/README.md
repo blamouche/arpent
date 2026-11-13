@@ -21,6 +21,7 @@ Puis ouvrir <http://localhost:8137/>.
 Un interrupteur **Démo / Live** en haut de la liste des séquences choisit le mode. Le choix est gardé sur l'appareil ; `?demo` ou `?live` dans l'URL le force.
 
 - **Démo (par défaut)**, thème violet : la position (marche avec des arrêts) et la caméra (mire) sont simulées, les données vont dans une base séparée et l'envoi est bloqué.
+  Au premier lancement, une **séquence d'exemple** (14 photos iPhone, Paris, 2017) est téléchargée depuis `panoramax.openstreetmap.fr` : vraies photos, positions, caps et dates. Elle est sous licence CC BY-SA 4.0 ; l'auteur et un lien vers Panoramax sont affichés dans le détail. Rien n'est copié dans ce dépôt. *Réglages → Réinitialiser la démo* efface les données de démo et la retélécharge.
 - **Live**, thème vert : vraie caméra, vrai GPS, boussole et envoi sur Panoramax. Un point rouge « enregistrement » clignote en haut de chaque écran.
 
 ## Tester sur un téléphone
@@ -41,6 +42,7 @@ Sur iPhone, **ajouter à l'écran d'accueil** (Partager → Sur l'écran d'accue
 | `index.html`, `style.css` | page unique, 4 écrans (liste, capture, détail, réglages) |
 | `app.js` | écrans, réglages, connexion, envoi reprenable |
 | `sensors.js` | GPS, boussole, caméra, écran allumé, mode démo |
+| `demo-data.js` | séquence d'exemple téléchargée depuis Panoramax en mode démo |
 | `exif.js` | segment EXIF/GPS inséré dans le JPEG sans recompression |
 | `db.js` | IndexedDB : séquences, métadonnées des photos, images |
 | `panoramax.js` | client API (routes identiques à l'app iOS) |

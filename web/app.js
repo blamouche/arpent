@@ -1,6 +1,7 @@
 // Arpent Web : interface (4 écrans), réglages, connexion et envoi.
 import * as db from './db.js';
 import { buildExifSegment, withExif } from './exif.js';
+import * as demoData from './demo-data.js';
 import { Client, NotLoggedIn, normalizeInstance } from './panoramax.js';
 import {
   DEMO, LocationService, CompassService, CameraService, distance, keepAwake, requestCompassPermission, setMode,
@@ -243,6 +244,7 @@ async function renderList() {
     </header>
     <main class="page">
       ${DEMO ? '<p class="banner">Mode démo : position et caméra simulées, envoi désactivé. Passez en <b>Live</b> pour utiliser la caméra, le GPS et l’envoi sur Panoramax.</p>' : ''}
+      ${DEMO && !demoData.isSeeded() ? '<p class="banner subtle" id="demo-seed">Téléchargement d’une séquence d’exemple depuis Panoramax…</p>' : ''}
       ${isIOS() && !isStandalone() && !DEMO ? '<p class="banner">Pour garder vos photos, ajoutez Arpent à l’écran d’accueil : <b>Partager → Sur l’écran d’accueil</b>.</p>' : ''}
       ${!auth.current && !DEMO ? '<p class="banner subtle">Pas encore connecté à Panoramax : <a href="#/settings">se connecter</a> (nécessaire seulement pour l’envoi).</p>' : ''}
       ${sequences.length ? `<ul class="sequences">${sequences.map((seq) => {
@@ -275,6 +277,7 @@ async function renderList() {
     await db.putSequence(seq);
     location.hash = `#/capture/${seq.id}`;
   };
+  if (DEMO && !demoData.isSeeded()) seedDemoSequence();
   const sendAll = document.getElementById('sendAll');
   if (sendAll) {
     sendAll.onclick = async () => {
@@ -283,6 +286,26 @@ async function renderList() {
       }
     };
   }
+}
+
+/** Mode démo : au premier lancement, télécharge une vraie séquence publiée sur Panoramax. */
+function seedDemoSequence() {
+  const show = () => {
+    const el = document.getElementById('demo-seed');
+    if (!el) return;
+    const { done, total, error } = demoData.progress;
+    if (error) {
+      el.innerHTML = `Séquence d’exemple indisponible (${esc(error)}). <a href="#/" id="demo-retry">Réessayer</a>`;
+      document.getElementById('demo-retry').onclick = (e) => { e.preventDefault(); demoData.progress.error = null; render(); };
+    } else {
+      el.textContent = total
+        ? `Téléchargement d’une séquence d’exemple depuis Panoramax… ${done}/${total} photos`
+        : 'Téléchargement d’une séquence d’exemple depuis Panoramax…';
+    }
+  };
+  show();
+  if (demoData.progress.error) return;
+  demoData.seedDemo(show).then((added) => { if (added) refresh(); }).catch(show);
 }
 
 // ---------- Écran : capture ----------
@@ -462,6 +485,7 @@ async function renderDetail(id) {
       <p class="meta">${photos.length} photo${photos.length > 1 ? 's' : ''} · ${(meters / 1000).toFixed(2)} km · ${minutes} min ·
         <span class="${pending ? 'pending' : 'done'}">${statusLabel(seq, photos.length, pending)}</span></p>
       <progress data-progress="${id}" max="1" hidden></progress>
+      ${seq.source ? `<p class="hint">Photos : ${esc(seq.source.author)}, licence <a href="${esc(seq.source.licenseURL)}" target="_blank" rel="noopener">${esc(seq.source.license)}</a>, <a href="${esc(seq.source.url)}" target="_blank" rel="noopener">voir sur Panoramax</a>.</p>` : ''}
       <div class="grid">${photos.map((p) => `<button class="thumb ${p.uploaded ? 'uploaded' : ''}" data-id="${p.id}" aria-label="Photo ${esc(p.fileName)}"></button>`).join('')}</div>
     </main>
     <footer class="actions">
@@ -573,6 +597,7 @@ async function renderSettings() {
       <section>
         <h2>À propos</h2>
         <p class="hint">Arpent Web, prototype. Mode actuel : ${DEMO ? 'démo (position et caméra simulées)' : 'live'}, modifiable en haut de la liste des séquences.</p>
+        ${DEMO ? '<button class="secondary" id="resetDemo">Réinitialiser la démo</button><p class="hint">Efface les séquences de démo et retélécharge la séquence d’exemple Panoramax.</p>' : ''}
         <p class="hint">Code source et suivi des problèmes : <a href="https://github.com/blamouche/arpent" target="_blank" rel="noopener">github.com/blamouche/arpent</a></p>
       </section>
     </main>`;
@@ -592,6 +617,11 @@ async function renderSettings() {
     };
   }
   $('#deleteAfterUpload').onchange = (e) => { settings.deleteAfterUpload = e.target.checked; settings.save(); };
+  $('#resetDemo')?.addEventListener('click', async () => {
+    if (!DEMO || !confirm('Effacer toutes les séquences de démo et recharger la séquence d’exemple ?')) return;
+    await demoData.resetDemo();
+    location.hash = '#/';
+  });
 
   $('#login')?.addEventListener('click', async (e) => {
     e.target.disabled = true;
