@@ -3,7 +3,7 @@ import * as db from './db.js';
 import { buildExifSegment, withExif } from './exif.js';
 import { Client, NotLoggedIn, normalizeInstance } from './panoramax.js';
 import {
-  DEMO, LocationService, CompassService, CameraService, distance, keepAwake, requestCompassPermission,
+  DEMO, LocationService, CompassService, CameraService, distance, keepAwake, requestCompassPermission, setMode,
 } from './sensors.js';
 
 const app = document.getElementById('app');
@@ -235,10 +235,14 @@ async function renderList() {
   app.innerHTML = `
     <header class="bar">
       <h1>Arpent</h1>
+      <div class="mode" role="radiogroup" aria-label="Mode">
+        <button role="radio" aria-checked="${DEMO}" data-demo="true">Démo</button>
+        <button role="radio" aria-checked="${!DEMO}" data-demo="false">Live</button>
+      </div>
       <a href="#/settings" class="icon-btn" aria-label="Réglages">${ICON_GEAR}</a>
     </header>
     <main class="page">
-      ${DEMO ? '<p class="banner">Mode démo : position et caméra simulées, envoi désactivé.</p>' : ''}
+      ${DEMO ? '<p class="banner">Mode démo : position et caméra simulées, envoi désactivé. Passez en <b>Live</b> pour utiliser la caméra, le GPS et l’envoi sur Panoramax.</p>' : ''}
       ${isIOS() && !isStandalone() && !DEMO ? '<p class="banner">Pour garder vos photos, ajoutez Arpent à l’écran d’accueil : <b>Partager → Sur l’écran d’accueil</b>.</p>' : ''}
       ${!auth.current && !DEMO ? '<p class="banner subtle">Pas encore connecté à Panoramax : <a href="#/settings">se connecter</a> (nécessaire seulement pour l’envoi).</p>' : ''}
       ${sequences.length ? `<ul class="sequences">${sequences.map((seq) => {
@@ -258,6 +262,12 @@ async function renderList() {
       <button class="primary" id="new">Nouvelle séquence</button>
     </footer>`;
 
+  app.querySelectorAll('.mode button').forEach((btn) => {
+    btn.onclick = () => {
+      const demo = btn.dataset.demo === 'true';
+      if (demo !== DEMO) setMode(demo);
+    };
+  });
   document.getElementById('new').onclick = async () => {
     requestCompassPermission(); // pendant le geste (iOS)
     navigator.storage?.persist?.().catch(() => {});
@@ -559,7 +569,7 @@ async function renderSettings() {
       </section>
       <section>
         <h2>À propos</h2>
-        <p class="hint">Arpent Web, prototype. ${DEMO ? '<a href="./">Quitter le mode démo</a>' : '<a href="./?demo">Essayer le mode démo</a> (position et caméra simulées).'}</p>
+        <p class="hint">Arpent Web, prototype. Mode actuel : ${DEMO ? 'démo (position et caméra simulées)' : 'live'}, modifiable en haut de la liste des séquences.</p>
         <p class="hint">Code source et suivi des problèmes : <a href="https://github.com/blamouche/arpent" target="_blank" rel="noopener">github.com/blamouche/arpent</a></p>
       </section>
     </main>`;
@@ -593,7 +603,7 @@ const ICON_GEAR = '<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="
 
 // ---------- Démarrage ----------
 
-if ('serviceWorker' in navigator && !DEMO) {
+if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./sw.js').catch(() => {});
 }
 auth.checkPending();

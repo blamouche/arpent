@@ -28,13 +28,13 @@ Dans le simulateur, *Features → Location → City Run* simule un déplacement 
 
 ## Version web (prototype)
 
-Le dossier [`web/`](web/README.md) contient une PWA qui reprend le même parcours dans le navigateur (iPhone et Android, sans installation depuis un store). Pour l'essayer en local avec position et caméra simulées :
+Le dossier [`web/`](web/README.md) contient une PWA qui reprend le même parcours dans le navigateur (iPhone et Android, sans installation depuis un store). Pour l'essayer en local :
 
 ```bash
 python3 -m http.server 8137 --directory web
 ```
 
-puis ouvrir <http://localhost:8137/?demo>. Version en ligne : <https://blamouche.github.io/arpent/>.
+puis ouvrir <http://localhost:8137/> : l'app s'ouvre en mode démo, un interrupteur en haut passe en mode Live. Version en ligne : <https://blamouche.github.io/arpent/>.
 
 ## Documentation
 

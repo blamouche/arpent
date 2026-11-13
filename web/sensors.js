@@ -1,7 +1,28 @@
 // Capteurs : GPS, boussole, caméra, écran allumé.
-// Mode démo (?demo dans l'URL) : position simulée qui marche avec des arrêts, caméra remplacée par une mire.
+// Mode démo (par défaut) : position simulée qui marche avec des arrêts, caméra remplacée par une mire.
+// Mode live : vrais capteurs. Le choix est gardé sur l'appareil ; ?demo ou ?live dans l'URL le force.
 
-export const DEMO = new URLSearchParams(location.search).has('demo');
+const MODE_KEY = 'arpent.mode';
+
+function initialMode() {
+  const params = new URLSearchParams(location.search);
+  const forced = params.has('live') ? 'live' : params.has('demo') ? 'demo' : null;
+  try {
+    if (forced) localStorage.setItem(MODE_KEY, forced);
+    return forced ?? (localStorage.getItem(MODE_KEY) === 'live' ? 'live' : 'demo');
+  } catch {
+    return forced ?? 'demo';
+  }
+}
+
+export const DEMO = initialMode() === 'demo';
+
+/** Change de mode : capteurs et base de données changent, donc on recharge sur la liste. */
+export function setMode(demo) {
+  try { localStorage.setItem(MODE_KEY, demo ? 'demo' : 'live'); } catch { /* stockage indisponible */ }
+  history.replaceState(null, '', `${location.pathname}#/`);
+  location.reload();
+}
 
 // ---------- Position ----------
 

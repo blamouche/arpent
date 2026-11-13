@@ -14,11 +14,18 @@ Version web (PWA) d'Arpent : on ouvre une URL sur iPhone ou Android, on capture 
 python3 -m http.server 8137 --directory web
 ```
 
-Puis ouvrir <http://localhost:8137/?demo> : en **mode démo**, la position (marche avec des arrêts) et la caméra (mire) sont simulées, les données vont dans une base séparée et l'envoi est bloqué.
+Puis ouvrir <http://localhost:8137/>.
+
+## Modes Démo et Live
+
+Un interrupteur **Démo / Live** en haut de la liste des séquences choisit le mode. Le choix est gardé sur l'appareil ; `?demo` ou `?live` dans l'URL le force.
+
+- **Démo (par défaut)** : la position (marche avec des arrêts) et la caméra (mire) sont simulées, les données vont dans une base séparée et l'envoi est bloqué.
+- **Live** : vraie caméra, vrai GPS, boussole et envoi sur Panoramax.
 
 ## Tester sur un téléphone
 
-Version en ligne : <https://blamouche.github.io/arpent/> (démo : <https://blamouche.github.io/arpent/?demo>), publiée automatiquement depuis `web/` à chaque push sur `main`.
+Version en ligne : <https://blamouche.github.io/arpent/> (s'ouvre en mode démo ; passer en **Live** en haut de l'écran), publiée automatiquement depuis `web/` à chaque push sur `main`.
 
 La caméra et le GPS exigent **HTTPS**. Deux options :
 

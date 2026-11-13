@@ -333,3 +333,24 @@ progress { width: 100%; height: 6px; accent-color: var(--accent); }
   -webkit-backdrop-filter: blur(8px);
 }
 #toast[hidden] { display: none; }
+
+/* ---------- Interrupteur Démo / Live ---------- */
+
+.mode {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+.mode button {
+  min-height: 0;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+}
+.mode button[aria-checked="true"] { background: var(--accent); color: var(--accent-text); }
+.mode button[data-demo="true"][aria-checked="true"] { background: var(--pending); color: var(--surface); }
