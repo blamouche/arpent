@@ -560,6 +560,7 @@ async function renderSettings() {
       <section>
         <h2>À propos</h2>
         <p class="hint">Arpent Web, prototype. ${DEMO ? '<a href="./">Quitter le mode démo</a>' : '<a href="./?demo">Essayer le mode démo</a> (position et caméra simulées).'}</p>
+        <p class="hint">Code source et suivi des problèmes : <a href="https://github.com/blamouche/arpent" target="_blank" rel="noopener">github.com/blamouche/arpent</a></p>
       </section>
     </main>`;
 
