@@ -2,8 +2,8 @@
 
 Version web (PWA) d'Arpent : on ouvre une URL sur iPhone ou Android, on capture une séquence, puis on l'envoie sur Panoramax. Même parcours et mêmes règles que l'app iOS, sans App Store.
 
-- HTML/CSS/JS statiques, aucun build, aucun serveur à soi : l'API Panoramax accepte les appels depuis un navigateur (CORS). Seule bibliothèque : [Leaflet](https://leafletjs.com) 1.9.4 (BSD-2), embarquée dans `vendor/` pour fonctionner hors ligne.
-- Carte OpenStreetMap de chaque séquence : trace, un point par photo (départ vert, arrivée rouge) ; toucher un point ouvre la photo.
+- HTML/CSS/JS statiques, aucun build, aucun serveur à soi : l'API Panoramax accepte les appels depuis un navigateur (CORS). Seule bibliothèque : [MapLibre GL JS](https://maplibre.org) 4.7.1 (BSD-3), embarquée dans `vendor/` pour fonctionner hors ligne.
+- Carte de chaque séquence sur un fond OpenStreetMap sobre, sans points d'intérêt ([OpenFreeMap](https://openfreemap.org), sans clé) : trace, un point par photo (départ vert, arrivée rouge) avec un cône qui montre la direction de prise de vue ; toucher un point ouvre la photo.
 - Mode auto temps + distance, déclencheur manuel, indicateur GPS, écran maintenu allumé.
 - EXIF complet écrit dans le JPEG (GPS, altitude, précision, cap, vitesse, date avec millisecondes et fuseau).
 - Photos stockées sur le téléphone (IndexedDB), l'app s'ouvre hors ligne (service worker).
@@ -47,7 +47,7 @@ Sur iPhone, **ajouter à l'écran d'accueil** (Partager → Sur l'écran d'accue
 | `exif.js` | segment EXIF/GPS inséré dans le JPEG sans recompression |
 | `db.js` | IndexedDB : séquences, métadonnées des photos, images |
 | `panoramax.js` | client API (routes identiques à l'app iOS) |
-| `vendor/leaflet/` | Leaflet 1.9.4 (carte), licence BSD-2 incluse |
+| `vendor/maplibre/` | MapLibre GL JS 4.7.1 (carte), licence BSD-3 incluse |
 | `sw.js`, `manifest.webmanifest`, `icons/` | PWA installable et hors ligne |
 
 ## Ce qui a été vérifié
@@ -62,7 +62,7 @@ Sur iPhone, **ajouter à l'écran d'accueil** (Partager → Sur l'écran d'accue
 ## Limites connues
 
 - **Qualité photo** : l'image vient du flux vidéo de la caméra (souvent 1920×1080 à 4K), sans le traitement photo natif. La résolution obtenue s'affiche en bas à droite de l'écran de capture. Piste Android : `ImageCapture.takePhoto()` (pleine résolution), à condition de gérer l'orientation.
-- **Orientation** : l'image suit l'orientation de l'écran. En paysage, désactiver le verrouillage de rotation.
+- **Orientation** : l'app fonctionne en portrait et en paysage (marges adaptées à l'encoche). L'image suit l'orientation de l'écran : pour photographier en paysage, désactiver le verrouillage de rotation, sinon la photo est enregistrée de travers.
 - **Cap** : boussole magnétique (`GPSImgDirectionRef = M`), sinon direction du déplacement. Sur iPhone, l'accès à la boussole est demandé au démarrage d'une séquence.
 - **Premier plan** : écran verrouillé ou autre app, la capture et l'envoi s'arrêtent (comme la v0.1 iOS).
 - **Redirection après connexion** : si l'instance refuse `next_url`, revenir manuellement dans Arpent puis toucher « J'ai terminé, vérifier » dans les réglages.

@@ -444,51 +444,129 @@ async function renderCapture(id) {
 
 // ---------- Écran : détail d'une séquence ----------
 
-let leafletPromise = null;
+let mapLibrePromise = null;
 
-/** Leaflet (embarqué dans vendor/) chargé à la première carte affichée. */
-function loadLeaflet() {
-  leafletPromise ??= new Promise((resolve, reject) => {
-    if (window.L) { resolve(window.L); return; }
+/** MapLibre GL (embarqué dans vendor/) chargé à la première carte affichée. */
+function loadMapLibre() {
+  mapLibrePromise ??= new Promise((resolve, reject) => {
+    if (window.maplibregl) { resolve(window.maplibregl); return; }
     const script = document.createElement('script');
-    script.src = 'vendor/leaflet/leaflet.js';
-    script.onload = () => resolve(window.L);
-    script.onerror = () => { leafletPromise = null; reject(new Error('Carte indisponible.')); };
+    script.src = 'vendor/maplibre/maplibre-gl.js';
+    script.onload = () => resolve(window.maplibregl);
+    script.onerror = () => { mapLibrePromise = null; reject(new Error('Carte indisponible.')); };
     document.head.append(script);
   });
-  return leafletPromise;
+  return mapLibrePromise;
 }
 
-/** Carte OSM : trace de la séquence et un point par photo (départ vert, arrivée rouge). */
+/** Cône de champ de vision (60°) pointant vers le haut, sommet au centre de l'image. */
+function viewConeImage(hex) {
+  const size = 128, c = size / 2, r = 60, half = (30 * Math.PI) / 180;
+  const n = parseInt(hex.replace('#', '').padEnd(6, '0').slice(0, 6), 16);
+  const rgba = (a) => `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  const grad = ctx.createRadialGradient(c, c, 0, c, c, r);
+  grad.addColorStop(0, rgba(0.8));
+  grad.addColorStop(1, rgba(0.1));
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.moveTo(c, c);
+  ctx.arc(c, c, r, -Math.PI / 2 - half, -Math.PI / 2 + half);
+  ctx.closePath();
+  ctx.fill();
+  return ctx.getImageData(0, 0, size, size);
+}
+
+/**
+ * Carte de la séquence : fond OpenStreetMap sobre et sans points d'intérêt
+ * (OpenFreeMap « positron », ou « dark » en mode sombre), trace, et un point par photo
+ * (départ vert, arrivée rouge), avec un cône qui montre la direction de prise de vue.
+ * Toucher un point ouvre la photo.
+ */
 async function trackMap(container, photos, onPick) {
-  const L = await loadLeaflet();
+  const maplibregl = await loadMapLibre();
   const css = getComputedStyle(document.documentElement);
   const color = (name) => css.getPropertyValue(name).trim();
-  const map = L.map(container, { scrollWheelZoom: false });
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">contributeurs OpenStreetMap</a>',
-  }).addTo(map);
-
-  const points = photos.map((p) => [p.latitude, p.longitude]);
-  L.polyline(points, { color: color('--accent'), weight: 4, opacity: 0.8 }).addTo(map);
+  const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+  const coords = photos.map((p) => [p.longitude, p.latitude]);
+  const bounds = coords.reduce((b, c) => b.extend(c), new maplibregl.LngLatBounds(coords[0], coords[0]));
   const last = photos.length - 1;
-  photos.forEach((p, i) => {
-    const edge = i === 0 || i === last;
-    L.circleMarker([p.latitude, p.longitude], {
-      radius: edge ? 7 : 5,
-      color: '#ffffff',
-      weight: 2,
-      fillColor: i === 0 ? color('--done') : i === last ? color('--danger') : color('--accent'),
-      fillOpacity: 1,
-    })
-      .bindTooltip(`Photo ${i + 1}/${photos.length} · ${new Date(p.capturedAt).toLocaleTimeString('fr-FR')}`)
-      .on('click', () => onPick(p))
-      .addTo(map);
-  });
+  const time = (p) => new Date(p.capturedAt).toLocaleTimeString('fr-FR');
 
-  if (points.length === 1) map.setView(points[0], 18);
-  else map.fitBounds(points, { padding: [24, 24], maxZoom: 19 });
+  const map = new maplibregl.Map({
+    container,
+    style: `https://tiles.openfreemap.org/styles/${dark ? 'dark' : 'positron'}`,
+    bounds,
+    fitBoundsOptions: { padding: 28, maxZoom: 18 },
+    attributionControl: false,
+    scrollZoom: false,
+    dragRotate: false,
+    pitchWithRotate: false,
+    touchPitch: false,
+  });
+  map.touchZoomRotate.disableRotation();
+  map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-left');
+  const attribution = new maplibregl.AttributionControl({ compact: true });
+  map.addControl(attribution, 'bottom-right');
+
+  map.on('load', () => {
+    // Attribution repliée (bouton ⓘ) pour ne pas masquer la trace.
+    attribution._container?.classList.remove('maplibregl-compact-show');
+    map.addImage('view-cone', viewConeImage(color('--accent')), { pixelRatio: 2 });
+    map.addSource('track', { type: 'geojson', data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } } });
+    map.addLayer({
+      id: 'track', type: 'line', source: 'track',
+      layout: { 'line-join': 'round', 'line-cap': 'round' },
+      paint: { 'line-color': color('--accent'), 'line-width': 4, 'line-opacity': 0.8 },
+    });
+    map.addSource('photos', {
+      type: 'geojson',
+      data: {
+        type: 'FeatureCollection',
+        features: photos.map((p, i) => ({
+          type: 'Feature',
+          properties: {
+            i,
+            role: i === 0 ? 'start' : i === last ? 'end' : 'mid',
+            label: `Photo ${i + 1}/${photos.length} · ${time(p)}${p.heading != null ? ` · cap ${Math.round(p.heading)}°` : ''}`,
+            ...(p.heading != null ? { heading: p.heading } : {}),
+          },
+          geometry: { type: 'Point', coordinates: [p.longitude, p.latitude] },
+        })),
+      },
+    });
+    // Cône de prise de vue orienté selon le cap de chaque photo, sous les points.
+    map.addLayer({
+      id: 'view-cones', type: 'symbol', source: 'photos',
+      filter: ['has', 'heading'],
+      layout: {
+        'icon-image': 'view-cone',
+        'icon-rotate': ['get', 'heading'],
+        'icon-rotation-alignment': 'map',
+        'icon-allow-overlap': true,
+        'icon-ignore-placement': true,
+      },
+    });
+    map.addLayer({
+      id: 'photos', type: 'circle', source: 'photos',
+      paint: {
+        'circle-radius': ['match', ['get', 'role'], 'mid', 5, 7],
+        'circle-color': ['match', ['get', 'role'], 'start', color('--done'), 'end', color('--danger'), color('--accent')],
+        'circle-stroke-color': '#ffffff',
+        'circle-stroke-width': 2,
+      },
+    });
+
+    const tip = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 10 });
+    map.on('click', 'photos', (e) => onPick(photos[e.features[0].properties.i]));
+    map.on('mouseenter', 'photos', (e) => {
+      map.getCanvas().style.cursor = 'pointer';
+      tip.setLngLat(e.features[0].geometry.coordinates).setText(e.features[0].properties.label).addTo(map);
+    });
+    map.on('mouseleave', 'photos', () => { map.getCanvas().style.cursor = ''; tip.remove(); });
+  });
   return map;
 }
 

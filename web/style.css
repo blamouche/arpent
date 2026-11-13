@@ -11,6 +11,8 @@
   --done: #1d7a4a;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
   color-scheme: light dark;
 }
 
@@ -93,7 +95,7 @@ button:disabled { opacity: .5; cursor: default; }
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: calc(10px + var(--safe-top)) 16px 10px;
+  padding: calc(10px + var(--safe-top)) calc(16px + var(--safe-right)) 10px calc(16px + var(--safe-left));
   background: color-mix(in srgb, var(--bg) 90%, transparent);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -110,7 +112,7 @@ button:disabled { opacity: .5; cursor: default; }
   width: 100%;
   max-width: 720px;
   margin: 0 auto;
-  padding: 16px;
+  padding: 16px calc(16px + var(--safe-right)) 16px calc(16px + var(--safe-left));
 }
 
 .actions {
@@ -119,7 +121,7 @@ button:disabled { opacity: .5; cursor: default; }
   display: flex;
   gap: 10px;
   justify-content: flex-end;
-  padding: 12px 16px calc(12px + var(--safe-bottom));
+  padding: 12px calc(16px + var(--safe-right)) calc(12px + var(--safe-bottom)) calc(16px + var(--safe-left));
   background: color-mix(in srgb, var(--bg) 90%, transparent);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -186,7 +188,8 @@ progress { width: 100%; height: 6px; accent-color: var(--accent); }
   background: var(--surface);
 }
 .map-error { display: grid; place-items: center; color: var(--muted); font-size: 14px; }
-.leaflet-container { font: inherit; }
+.maplibregl-map { font: inherit; }
+.maplibregl-popup-content { font-size: 13px; padding: 6px 10px; color: #17201c; }
 
 .meta { color: var(--muted); font-size: 14px; }
 
@@ -276,7 +279,7 @@ progress { width: 100%; height: 6px; accent-color: var(--accent); }
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: calc(10px + var(--safe-top)) 12px 10px;
+  padding: calc(10px + var(--safe-top)) calc(12px + var(--safe-right)) 10px calc(12px + var(--safe-left));
   background: linear-gradient(#0009, #0000);
 }
 .capture .count { flex: 1; text-align: center; font-weight: 600; text-shadow: 0 1px 3px #000; }
@@ -315,7 +318,7 @@ progress { width: 100%; height: 6px; accent-color: var(--accent); }
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  padding: 16px 20px calc(20px + var(--safe-bottom));
+  padding: 16px calc(20px + var(--safe-right)) calc(20px + var(--safe-bottom)) calc(20px + var(--safe-left));
   background: linear-gradient(#0000, #0009);
 }
 .capture .auto {
