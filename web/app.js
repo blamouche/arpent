@@ -2,7 +2,7 @@
 import * as db from './db.js';
 import { buildExifSegment, withExif } from './exif.js';
 import * as demoData from './demo-data.js';
-import { Client, NotLoggedIn, normalizeInstance, sequencePageURL } from './panoramax.js';
+import { Client, NotLoggedIn, SimulatedClient, normalizeInstance, sequencePageURL } from './panoramax.js';
 import {
   DEMO, LocationService, CompassService, CameraService, distance, keepAwake, requestCompassPermission, setMode,
 } from './sensors.js';
@@ -104,85 +104,308 @@ const auth = {
 
 // ---------- Envoi (reprenable) ----------
 
-const uploads = new Map(); // id séquence → avancement 0…1
+// id séquence → état de l'envoi, affiché en direct (panneau, ligne de liste, vignettes).
+// phase : queued (en file), prepare, files, complete, puis done, error ou stopped.
+const uploads = new Map();
+const ACTIVE = new Set(['queued', 'prepare', 'files', 'complete']);
+const isActive = (u) => !!u && ACTIVE.has(u.phase);
+const anyActive = () => [...uploads.values()].some(isActive);
 
-function showProgress() {
-  document.querySelectorAll('[data-progress]').forEach((el) => {
-    const p = uploads.get(el.dataset.progress);
-    el.hidden = p == null;
-    if (p != null) el.value = p;
-  });
-  document.querySelectorAll('[data-upload-btn]').forEach((el) => {
-    el.disabled = uploads.size > 0;
-  });
+function newUpload(phase, total = 0) {
+  return {
+    phase, total, sent: 0, ids: new Set(), sentIds: new Set(), current: null, currentSize: 0, fileFraction: 0,
+    bytesTotal: 0, bytesDone: 0, startedAt: Date.now(), filesStartedAt: 0, endedAt: 0,
+    host: '', private: false, failedPhase: null, error: null, controller: new AbortController(),
+  };
 }
 
-async function sendSequence(id, client) {
+const plural = (n, word) => `${n} ${word}${n > 1 ? 's' : ''}`;
+const mo = (bytes) => `${(bytes / 1e6).toLocaleString('fr-FR', { maximumFractionDigits: bytes < 1e7 ? 1 : 0 })} Mo`;
+function duration(seconds) {
+  const s = Math.max(1, Math.round(seconds));
+  return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${pad(s % 60)}`;
+}
+const sentBytes = (u) => u.bytesDone + u.fileFraction * u.currentSize;
+
+async function sendSequence(id, client, u) {
   const seq = await db.getSequence(id);
   const photos = await db.photosOf(id);
   const pending = photos.filter((p) => !p.uploaded);
-  if (!pending.length) return;
+  const visibility = settings.privateUpload ? 'owner-only' : null;
+  Object.assign(u, {
+    phase: 'prepare', total: pending.length, sent: 0, ids: new Set(pending.map((p) => p.id)), sentIds: new Set(),
+    host: DEMO ? '' : new URL(client.base).host, private: !!visibility,
+  });
+  showProgress();
+
+  // Toutes les photos déjà parties mais séquence pas finalisée (coupure pendant la finalisation).
+  if (!pending.length) {
+    if (!seq.uploadSetId || seq.uploadCompleted) return;
+    u.phase = 'complete';
+    showProgress();
+    await client.completeUploadSet(seq.uploadSetId);
+    await db.putSequence({ ...seq, uploadCompleted: true });
+    return;
+  }
+
+  const files = new Map();
+  for (const p of pending) files.set(p.id, (await db.getBlobs(p.id))?.jpeg ?? null);
+  u.bytesTotal = [...files.values()].reduce((sum, b) => sum + (b?.size ?? 0), 0);
+  u.bytesDone = 0;
 
   // Nouvel upload set si aucun, si l'instance ou la visibilité a changé, ou si le précédent est terminé.
-  const visibility = settings.privateUpload ? 'owner-only' : null;
   if (!seq.uploadSetId || seq.uploadInstance !== client.base || seq.uploadCompleted
       || (seq.uploadVisibility ?? null) !== visibility) {
     const set = await client.createUploadSet(seq.name, pending.length, visibility);
     Object.assign(seq, { uploadSetId: set.id, uploadInstance: client.base, uploadCompleted: false, uploadVisibility: visibility });
     await db.putSequence(seq);
   }
+  u.controller.signal.throwIfAborted();
 
-  for (const [i, photo] of pending.entries()) {
-    const blobs = await db.getBlobs(photo.id);
-    if (blobs?.jpeg) {
-      await client.uploadFile(seq.uploadSetId, blobs.jpeg, photo.fileName);
-      await db.putPhoto({ ...photo, uploaded: true });
-    }
-    uploads.set(id, (i + 1) / pending.length);
+  u.phase = 'files';
+  u.filesStartedAt = Date.now();
+  for (const photo of pending) {
+    const jpeg = files.get(photo.id);
+    Object.assign(u, { current: photo.id, currentSize: jpeg?.size ?? 0, fileFraction: 0 });
     showProgress();
+    if (jpeg) {
+      await client.uploadFile(seq.uploadSetId, jpeg, photo.fileName, {
+        signal: u.controller.signal,
+        onProgress: (f) => { u.fileFraction = f; showProgress(); },
+      });
+      await db.putPhoto({ ...photo, uploaded: true });
+      u.bytesDone += jpeg.size;
+    }
+    u.sent += 1;
+    u.sentIds.add(photo.id);
+    Object.assign(u, { current: null, currentSize: 0, fileFraction: 0 });
   }
 
+  u.phase = 'complete';
+  showProgress();
   await client.completeUploadSet(seq.uploadSetId);
   await db.putSequence({ ...seq, uploadCompleted: true });
 
-  if (settings.deleteAfterUpload) {
+  if (settings.deleteAfterUpload && !DEMO) {
     for (const p of await db.photosOf(id)) if (p.uploaded && !p.fileDeleted) await db.dropJpeg(p);
   }
 }
 
-/** Renvoie false en cas d'échec. */
+/** Renvoie false en cas d'échec ou d'arrêt. */
 async function uploadSequence(id) {
+  const prev = uploads.get(id);
+  if (isActive(prev) && prev.phase !== 'queued') return true;
+  let client;
   if (DEMO) {
-    toast('Envoi désactivé en mode démo : les photos de démo ne doivent pas partir sur Panoramax.');
-    return false;
+    client = new SimulatedClient(); // démo : déroulé simulé, aucune photo ne part sur Panoramax
+  } else {
+    const a = auth.current;
+    if (!a) {
+      uploads.delete(id);
+      paintUploads();
+      toast(new NotLoggedIn().message);
+      return false;
+    }
+    client = new Client(a.instance, a.jwt);
   }
-  if (uploads.has(id)) return true;
-  const a = auth.current;
-  if (!a) {
-    toast(new NotLoggedIn().message);
-    return false;
-  }
-  const client = new Client(a.instance, a.jwt);
-  uploads.set(id, 0);
+  const u = newUpload('prepare');
+  uploads.set(id, u);
   showProgress();
+  keepAwake(true); // l'écran qui s'éteint suspendrait l'envoi
   try {
     try {
-      await sendSequence(id, client);
+      await sendSequence(id, client, u);
     } catch (e) {
       if (e.status !== 404) throw e;
       // Upload set supprimé côté serveur : on repart d'un nouveau, une seule fois.
       const seq = await db.getSequence(id);
       await db.putSequence({ ...seq, uploadSetId: null });
-      await sendSequence(id, client);
+      await sendSequence(id, client, u);
     }
+    u.phase = 'done';
     return true;
   } catch (e) {
-    toast(e.status === 401 ? 'Session Panoramax expirée : reconnectez-vous dans les réglages.' : e.message);
+    u.failedPhase = u.phase;
+    if (e.name === 'AbortError') {
+      u.phase = 'stopped';
+    } else {
+      u.phase = 'error';
+      u.error = e.status === 401 ? 'Session Panoramax expirée : reconnectez-vous dans les réglages.' : e.message;
+      toast(u.error);
+    }
     return false;
   } finally {
-    uploads.delete(id);
+    u.endedAt = Date.now();
+    Object.assign(u, { current: null, fileFraction: 0 });
+    if (!anyActive() && !location.hash.startsWith('#/capture/')) keepAwake(false);
     refresh();
   }
+}
+
+/** Envoie les séquences l'une après l'autre ; les suivantes s'affichent « en attente ». */
+async function uploadAll(entries) {
+  for (const { id, pending } of entries) if (!isActive(uploads.get(id))) uploads.set(id, newUpload('queued', pending));
+  paintUploads();
+  for (const { id } of entries) if (!(await uploadSequence(id))) break;
+  for (const { id } of entries) if (uploads.get(id)?.phase === 'queued') uploads.delete(id);
+  refresh();
+}
+
+// ----- Affichage de l'avancement -----
+
+const STEP_PHASES = ['prepare', 'files', 'complete'];
+const UPLOAD_TITLES = {
+  queued: 'En attente', prepare: 'Envoi en cours', files: 'Envoi en cours', complete: 'Envoi en cours',
+  done: 'Envoi terminé', error: 'Envoi interrompu', stopped: 'Envoi arrêté',
+};
+
+/** État d'une étape : done, active, pending, error ou stopped. */
+function stepState(u, i) {
+  if (u.phase === 'done') return 'done';
+  if (u.phase === 'error' || u.phase === 'stopped') {
+    const f = STEP_PHASES.indexOf(u.failedPhase);
+    return i < f ? 'done' : i === f ? u.phase : 'pending';
+  }
+  const p = STEP_PHASES.indexOf(u.phase);
+  return i < p ? 'done' : i === p ? 'active' : 'pending';
+}
+
+function stepDetail(u, i, state) {
+  if (i === 0) {
+    if (state === 'active') return DEMO ? 'Simulation : rien ne part sur Panoramax' : `Connexion à ${u.host}…`;
+    if (state === 'done') return DEMO ? 'Simulation : rien ne part sur Panoramax' : `${u.host}${u.private ? ' · envoi privé' : ''}`;
+    return '';
+  }
+  if (i === 1) {
+    if (state === 'pending') return u.total ? plural(u.total, 'photo') : '';
+    return `${u.sent} / ${u.total}`;
+  }
+  if (state === 'active') return 'Validation de la séquence…';
+  if (state === 'done') return DEMO ? 'Simulée' : 'Séquence reçue, traitement en cours sur Panoramax';
+  return '';
+}
+
+/** Avancement global 0…1 (au poids des fichiers). */
+function uploadFraction(u) {
+  if (u.phase === 'done' || u.phase === 'complete') return 1;
+  if (!u.total) return 0;
+  if (u.bytesTotal) return sentBytes(u) / u.bytesTotal;
+  return (u.sent + u.fileFraction) / u.total;
+}
+
+const UPLOAD_PANEL = `
+  <div class="up-head">
+    <p class="up-title" aria-live="polite"></p>
+    <button class="secondary up-stop" type="button">Arrêter</button>
+  </div>
+  <p class="up-count"></p>
+  <div class="up-bar" role="progressbar" aria-label="Avancement de l’envoi" aria-valuemin="0" aria-valuemax="100"><span></span></div>
+  <p class="up-sub"></p>
+  <p class="up-error error"></p>
+  <ol class="up-steps">${['Préparation', 'Envoi des photos', 'Finalisation'].map((label) => `
+    <li><span class="up-icon" aria-hidden="true"></span><span class="up-label">${label}</span><span class="up-detail"></span></li>`).join('')}
+  </ol>`;
+
+function paintPanel(el, u) {
+  el.hidden = !u;
+  if (!u) return;
+  if (!el.firstElementChild) {
+    el.innerHTML = UPLOAD_PANEL;
+    el.querySelector('.up-stop').onclick = () => uploads.get(el.dataset.upload)?.controller.abort();
+  }
+  const q = (s) => el.querySelector(s);
+  const remaining = u.total - u.sent;
+  const fraction = uploadFraction(u);
+  el.dataset.phase = u.phase;
+  q('.up-title').textContent = `${UPLOAD_TITLES[u.phase]}${DEMO ? ' (simulé)' : ''}`;
+  q('.up-stop').hidden = !(u.phase === 'prepare' || u.phase === 'files');
+  q('.up-error').hidden = u.phase !== 'error';
+  q('.up-error').textContent = u.error ?? '';
+
+  let count;
+  if (u.phase === 'queued') count = 'Démarre après la séquence en cours.';
+  else if (u.phase === 'done') count = u.total ? `${plural(u.total, 'photo')} envoyée${u.total > 1 ? 's' : ''} en ${duration((u.endedAt - u.startedAt) / 1000)}` : 'Séquence finalisée';
+  else if (u.phase === 'complete') count = 'Toutes les photos sont parties.';
+  else if (u.phase === 'prepare' && !u.total) count = 'Préparation…';
+  else count = `<b>${remaining}</b> photo${remaining > 1 ? 's' : ''} restante${remaining > 1 ? 's' : ''} sur ${u.total}`;
+  q('.up-count').innerHTML = count;
+
+  const bar = q('.up-bar');
+  bar.style.setProperty('--p', fraction.toFixed(4));
+  bar.setAttribute('aria-valuenow', Math.round(fraction * 100));
+  bar.classList.toggle('busy', u.phase === 'prepare' || u.phase === 'complete');
+
+  let sub = '';
+  if (u.phase === 'files' && u.bytesTotal) {
+    sub = `${mo(sentBytes(u))} sur ${mo(u.bytesTotal)}`;
+    const elapsed = (Date.now() - u.filesStartedAt) / 1000;
+    const rate = sentBytes(u) / elapsed;
+    if (elapsed > 1.5 && rate > 0) sub += ` · ${mo(rate)}/s · encore ≈ ${duration((u.bytesTotal - sentBytes(u)) / rate)}`;
+  } else if (u.phase === 'done' && u.bytesTotal) {
+    sub = `${mo(u.bytesTotal)} envoyés`;
+  } else if (u.phase === 'stopped') {
+    sub = 'Les photos déjà envoyées sont conservées : l’envoi repartira de là où il s’est arrêté.';
+  }
+  q('.up-sub').textContent = sub;
+
+  el.querySelectorAll('.up-steps li').forEach((li, i) => {
+    const state = stepState(u, i);
+    li.dataset.state = state;
+    li.querySelector('.up-detail').textContent = stepDetail(u, i, state);
+  });
+}
+
+const INLINE_TEXT = {
+  queued: () => 'En attente',
+  prepare: () => 'Préparation…',
+  files: (u) => `${u.sent} / ${u.total} envoyée${u.sent > 1 ? 's' : ''}`,
+  complete: () => 'Finalisation…',
+  error: () => 'Envoi interrompu',
+  stopped: () => 'Envoi arrêté',
+};
+
+function paintInline(el, u) {
+  el.hidden = !u || u.phase === 'done';
+  if (el.hidden) return;
+  el.dataset.state = u.phase === 'queued' ? 'pending' : isActive(u) ? 'active' : u.phase;
+  el.querySelector('.up-inline-text').textContent = INLINE_TEXT[u.phase](u);
+  el.querySelector('.up-bar').style.setProperty('--p', uploadFraction(u).toFixed(4));
+}
+
+/** Vignettes : en attente (estompées), en cours (anneau d'avancement), envoyées (pastille). */
+function paintThumbs(grid, u) {
+  const live = isActive(u);
+  for (const el of grid.children) {
+    const pid = el.dataset.id;
+    const sending = live && u.current === pid;
+    el.classList.toggle('waiting', live && u.ids.has(pid) && !u.sentIds.has(pid) && !sending);
+    el.classList.toggle('sending', sending);
+    if (sending) el.style.setProperty('--p', u.fileFraction.toFixed(3));
+    if (u?.sentIds.has(pid) && !el.classList.contains('uploaded')) el.classList.add('uploaded', 'just');
+  }
+}
+
+function paintUploads() {
+  const busy = anyActive();
+  document.querySelectorAll('[data-upload-btn]').forEach((el) => { el.disabled = busy; });
+  document.querySelectorAll('[data-upload]').forEach((el) => paintPanel(el, uploads.get(el.dataset.upload)));
+  document.querySelectorAll('[data-upload-inline]').forEach((el) => paintInline(el, uploads.get(el.dataset.uploadInline)));
+  document.querySelectorAll('[data-upload-thumbs]').forEach((el) => paintThumbs(el, uploads.get(el.dataset.uploadThumbs)));
+  // Nombre de photos restantes, en direct.
+  document.querySelectorAll('[data-status]').forEach((el) => {
+    const u = uploads.get(el.dataset.status);
+    if (!u || u.phase === 'queued' || u.phase === 'done' || !u.total) return;
+    const remaining = u.total - u.sent;
+    el.textContent = remaining ? `${remaining} à envoyer` : 'finalisation';
+  });
+}
+
+// Les mises à jour (jusqu'à plusieurs dizaines par seconde) sont regroupées par image affichée.
+let paintPending = false;
+function showProgress() {
+  if (paintPending) return;
+  paintPending = true;
+  requestAnimationFrame(() => { paintPending = false; paintUploads(); });
 }
 
 // ---------- Routeur ----------
@@ -201,7 +424,7 @@ async function render() {
     console.error(e);
     app.innerHTML = `<main class="page"><p class="error">${esc(e.message)}</p><a href="#/">Retour</a></main>`;
   }
-  showProgress();
+  paintUploads();
 }
 
 /** Re-dessine l'écran courant, sauf la capture (qui redémarrerait la caméra). */
@@ -209,7 +432,10 @@ function refresh() {
   if (!location.hash.startsWith('#/capture/')) render();
 }
 
-window.addEventListener('hashchange', render);
+window.addEventListener('hashchange', () => {
+  for (const [id, u] of uploads) if (!isActive(u)) uploads.delete(id); // bilans affichés jusqu'au changement d'écran
+  render();
+});
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') auth.checkPending();
 });
@@ -218,6 +444,10 @@ document.addEventListener('visibilitychange', () => {
 
 const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+/** « Continuer l'envoi » après une coupure ou un arrêt, sinon null. */
+const resumeLabel = (id) => (['error', 'stopped'].includes(uploads.get(id)?.phase) ? 'Continuer l’envoi' : null);
+const sendSuffix = () => (DEMO ? ' (simulé)' : settings.privateUpload ? ' (privé)' : '');
 
 function statusLabel(seq, total, pending) {
   if (!total) return 'vide';
@@ -247,7 +477,7 @@ async function renderList() {
       <a href="#/settings" class="icon-btn" aria-label="Réglages">${ICON_GEAR}</a>
     </header>
     <main class="page">
-      ${DEMO ? '<p class="banner">Mode démo : position et caméra simulées, envoi désactivé. Passez en <b>Live</b> pour utiliser la caméra, le GPS et l’envoi sur Panoramax.</p>' : ''}
+      ${DEMO ? '<p class="banner">Mode démo : position, caméra et envoi simulés, rien ne part sur Panoramax. Passez en <b>Live</b> pour utiliser la caméra, le GPS et l’envoi réel.</p>' : ''}
       ${DEMO && !demoData.isSeeded() ? '<p class="banner subtle" id="demo-seed">Téléchargement d’une séquence d’exemple depuis Panoramax…</p>' : ''}
       ${isIOS() && !isStandalone() && !DEMO ? '<p class="banner">Pour garder vos photos, ajoutez Arpent à l’écran d’accueil : <b>Partager → Sur l’écran d’accueil</b>.</p>' : ''}
       ${!auth.current && !DEMO ? '<p class="banner subtle">Pas encore connecté à Panoramax : <a href="#/settings">se connecter</a> (nécessaire seulement pour l’envoi).</p>' : ''}
@@ -255,8 +485,8 @@ async function renderList() {
         const s = stats.get(seq.id) ?? { total: 0, pending: 0 };
         return `<li><a href="#/seq/${seq.id}">
           <span class="name">${esc(seq.name)}</span>
-          <span class="meta">${s.total} photo${s.total > 1 ? 's' : ''} · <span class="${s.pending ? 'pending' : 'done'}">${statusLabel(seq, s.total, s.pending)}</span></span>
-          <progress data-progress="${seq.id}" max="1" hidden></progress>
+          <span class="meta">${s.total} photo${s.total > 1 ? 's' : ''} · <span class="${s.pending ? 'pending' : 'done'}" data-status="${seq.id}">${statusLabel(seq, s.total, s.pending)}</span></span>
+          <span class="up-inline" data-upload-inline="${seq.id}" hidden><span class="up-icon" aria-hidden="true"></span><span class="up-inline-text"></span><span class="up-bar"><span></span></span></span>
         </a></li>`;
       }).join('')}</ul>` : `<div class="empty">
           <p><b>Aucune séquence.</b></p>
@@ -264,7 +494,7 @@ async function renderList() {
         </div>`}
     </main>
     <footer class="actions">
-      ${anyPending ? `<button class="secondary" id="sendAll" data-upload-btn>Tout envoyer${settings.privateUpload ? ' (privé)' : ''}</button>` : ''}
+      ${anyPending ? `<button class="secondary" id="sendAll" data-upload-btn>Tout envoyer${sendSuffix()}</button>` : ''}
       <button class="primary" id="new">Nouvelle séquence</button>
     </footer>`;
 
@@ -284,11 +514,9 @@ async function renderList() {
   if (DEMO && !demoData.isSeeded()) seedDemoSequence();
   const sendAll = document.getElementById('sendAll');
   if (sendAll) {
-    sendAll.onclick = async () => {
-      for (const seq of sequences) {
-        if ((stats.get(seq.id)?.pending ?? 0) > 0 && !(await uploadSequence(seq.id))) break;
-      }
-    };
+    sendAll.onclick = () => uploadAll(sequences
+      .map((seq) => ({ id: seq.id, pending: stats.get(seq.id)?.pending ?? 0 }))
+      .filter((e) => e.pending > 0));
   }
 }
 
@@ -468,7 +696,7 @@ async function renderCapture(id) {
     camera.stop();
     location_.stop();
     compass.stop();
-    keepAwake(false);
+    keepAwake(anyActive());
   };
 }
 
@@ -605,6 +833,7 @@ async function renderDetail(id) {
   if (!seq) { location.hash = '#/'; return; }
   const photos = await db.photosOf(id);
   const pending = photos.filter((p) => !p.uploaded).length;
+  const unfinished = !pending && photos.length > 0 && seq.uploadSetId && !seq.uploadCompleted; // finalisation interrompue
   let meters = 0;
   for (let i = 1; i < photos.length; i++) meters += distance(photos[i - 1], photos[i]);
   const minutes = photos.length > 1 ? Math.round((photos.at(-1).capturedAt - photos[0].capturedAt) / 60000) : 0;
@@ -618,16 +847,16 @@ async function renderDetail(id) {
       <input class="title" id="name" value="${esc(seq.name)}" aria-label="Nom de la séquence">
       ${photos.length ? '<div class="map" id="map" role="region" aria-label="Carte du parcours"></div>' : ''}
       <p class="meta">${photos.length} photo${photos.length > 1 ? 's' : ''} · ${(meters / 1000).toFixed(2)} km · ${minutes} min ·
-        <span class="${pending ? 'pending' : 'done'}">${statusLabel(seq, photos.length, pending)}</span></p>
-      <progress data-progress="${id}" max="1" hidden></progress>
-      ${seq.uploadCompleted && seq.uploadSetId ? '<p class="hint" id="pmx-link">Recherche de la séquence sur Panoramax…</p>' : ''}
+        <span class="${pending ? 'pending' : 'done'}" data-status="${id}">${statusLabel(seq, photos.length, pending)}</span></p>
+      <section class="upload" data-upload="${id}" aria-label="Envoi sur Panoramax" hidden></section>
+      ${seq.uploadCompleted && seq.uploadSetId && !DEMO ? '<p class="hint" id="pmx-link">Recherche de la séquence sur Panoramax…</p>' : ''}
       ${seq.source ? `<p class="hint">Photos : ${esc(seq.source.author)}, licence <a href="${esc(seq.source.licenseURL)}" target="_blank" rel="noopener">${esc(seq.source.license)}</a>, <a href="${esc(seq.source.url)}" target="_blank" rel="noopener">voir sur Panoramax</a>.</p>` : ''}
-      <div class="grid">${photos.map((p) => `<button class="thumb ${p.uploaded ? 'uploaded' : ''}" data-id="${p.id}" aria-label="Photo ${esc(p.fileName)}"></button>`).join('')}</div>
+      <div class="grid" data-upload-thumbs="${id}">${photos.map((p) => `<button class="thumb ${p.uploaded ? 'uploaded' : ''}" data-id="${p.id}" aria-label="Photo ${esc(p.fileName)}"></button>`).join('')}</div>
     </main>
     <footer class="actions">
       <button class="danger" id="delete">Supprimer</button>
       <button class="secondary" id="resume">Reprendre</button>
-      ${pending ? `<button class="primary" id="send" data-upload-btn>Envoyer${settings.privateUpload ? ' (privé)' : ''}</button>` : ''}
+      ${pending || unfinished ? `<button class="primary" id="send" data-upload-btn>${resumeLabel(id) ?? (pending ? 'Envoyer' : 'Finaliser')}${sendSuffix()}</button>` : ''}
     </footer>`;
 
   // Vignettes chargées à la demande.
@@ -668,9 +897,14 @@ async function renderDetail(id) {
     await db.deleteSequence(id);
     location.hash = '#/';
   };
-  if (seq.uploadCompleted && seq.uploadSetId) showPanoramaxLink(seq);
+  if (seq.uploadCompleted && seq.uploadSetId && !DEMO) showPanoramaxLink(seq);
   const send = app.querySelector('#send');
-  if (send) send.onclick = () => uploadSequence(id);
+  if (send) {
+    send.onclick = () => {
+      uploadSequence(id);
+      requestAnimationFrame(() => app.querySelector('.upload')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }));
+    };
+  }
 
   app.querySelector('.grid').onclick = (e) => {
     const btn = e.target.closest('.thumb');

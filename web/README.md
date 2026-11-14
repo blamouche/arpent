@@ -9,6 +9,7 @@ Version web (PWA) d'Arpent : on ouvre une URL sur iPhone ou Android, on capture 
 - EXIF complet écrit dans le JPEG (GPS, altitude, précision, cap, vitesse, date avec millisecondes et fuseau).
 - Photos stockées sur le téléphone (IndexedDB), l'app s'ouvre hors ligne (service worker).
 - Connexion par « jeton réclamé » sur le site de l'instance, envoi reprenable.
+- **Suivi de l'envoi en direct** : panneau en trois étapes (préparation, envoi des photos, finalisation) avec une icône par état (fait, en cours, en attente, erreur, arrêté), nombre de photos restantes, Mo envoyés, débit et temps restant, bouton **Arrêter**. Sur les vignettes : photos en attente estompées, anneau d'avancement sur la photo en cours, pastille verte une fois envoyée. Dans la liste, chaque séquence affiche son état, « en attente » pendant un *Tout envoyer*. L'écran reste allumé pendant l'envoi.
 - Une fois une séquence envoyée, son détail affiche un **lien vers la séquence sur Panoramax** (`<instance>/sequence/<id>`), ou un lien par séquence si le serveur l'a découpée.
 - **Envoi privé (test)** dans les réglages : les séquences sont envoyées en visibilité `owner-only`, visibles par vous seul sur Panoramax.
 
@@ -24,7 +25,7 @@ Puis ouvrir <http://localhost:8137/>.
 
 Un interrupteur **Démo / Live** en haut de la liste des séquences choisit le mode. Le choix est gardé sur l'appareil ; `?demo` ou `?live` dans l'URL le force.
 
-- **Démo (par défaut)**, thème violet : la position (marche avec des arrêts) et la caméra (mire) sont simulées, les données vont dans une base séparée et l'envoi est bloqué.
+- **Démo (par défaut)**, thème violet : la position (marche avec des arrêts) et la caméra (mire) sont simulées, les données vont dans une base séparée et l'envoi est **simulé** (déroulé et débit factices) : aucune photo ne part sur Panoramax.
   Au premier lancement, une **séquence d'exemple** (14 photos iPhone, Paris, 2017) est téléchargée depuis `panoramax.openstreetmap.fr` : vraies photos, positions, caps et dates. Elle est sous licence CC BY-SA 4.0 ; l'auteur et un lien vers Panoramax sont affichés dans le détail. Rien n'est copié dans ce dépôt. *Réglages → Réinitialiser la démo* efface les données de démo et la retélécharge.
 - **Live**, thème vert : vraie caméra, vrai GPS, boussole et envoi sur Panoramax. Un point rouge « enregistrement » clignote en haut de chaque écran.
 
@@ -67,7 +68,7 @@ L'instance OSM France accepte `anyone` et `owner-only` (`GET /api/configuration`
 
 - Capture auto en mode démo : une photo toutes les ~4 s en marche, aucune pendant les arrêts.
 - EXIF relu avec Pillow : position, altitude, précision, cap, vitesse, dates UTC et locale avec millisecondes.
-- Connexion et envoi contre un faux serveur Panoramax local (appels cross-origin) : panne au 3e fichier, puis reprise sur le même upload set avec seulement les photos manquantes, puis `complete`.
+- Connexion et envoi contre un faux serveur Panoramax local (appels cross-origin) : panne au 3e fichier, puis reprise sur le même upload set avec seulement les photos manquantes, puis `complete`. Suivi en direct vérifié contre ce faux serveur : *Tout envoyer* avec une séquence en attente, erreur affichée, arrêt en cours d'envoi puis reprise.
 - En-têtes CORS de `panoramax.openstreetmap.fr` (préflight `POST` avec `Authorization`).
 
 **Pas encore testé** : sur un vrai iPhone / Android (caméra réelle, boussole, wake lock), et la connexion + l'envoi sur une vraie instance Panoramax.

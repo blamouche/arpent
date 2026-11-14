@@ -14,6 +14,13 @@ export class NotLoggedIn extends Error {
   }
 }
 
+export class AbortError extends Error {
+  name = 'AbortError';
+  constructor() {
+    super('Envoi arrêté.');
+  }
+}
+
 /** URL d'instance normalisée (https par défaut, sans slash final), ou null. */
 export function normalizeInstance(raw) {
   let s = (raw || '').trim();
@@ -85,17 +92,31 @@ export class Client {
     });
   }
 
-  /** Un 409 (photo déjà envoyée) compte comme un succès. */
-  async uploadFile(uploadSetId, blob, fileName) {
+  /**
+   * Un 409 (photo déjà envoyée) compte comme un succès. XHR plutôt que fetch : seul XHR donne
+   * l'avancement de l'envoi (onProgress reçoit 0…1). signal permet d'interrompre.
+   */
+  uploadFile(uploadSetId, blob, fileName, { onProgress, signal } = {}) {
+    const headers = this.headers();
     const form = new FormData();
     form.append('file', blob, fileName);
-    const response = await fetch(this.url(`api/upload_sets/${uploadSetId}/files`), {
-      method: 'POST',
-      headers: this.headers(),
-      body: form,
+    return new Promise((resolve, reject) => {
+      if (signal?.aborted) return reject(new AbortError());
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', this.url(`api/upload_sets/${uploadSetId}/files`));
+      for (const [k, v] of Object.entries(headers)) xhr.setRequestHeader(k, v);
+      xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress?.(e.loaded / e.total); };
+      xhr.onload = () => {
+        if ((xhr.status >= 200 && xhr.status < 300) || xhr.status === 409) return resolve();
+        let message = xhr.responseText.slice(0, 200);
+        try { const j = JSON.parse(xhr.responseText); if (typeof j.message === 'string') message = j.message; } catch { /* pas du JSON */ }
+        reject(new APIError(xhr.status, message));
+      };
+      xhr.onerror = () => reject(new Error('Connexion perdue pendant l’envoi.'));
+      xhr.onabort = () => reject(new AbortError());
+      signal?.addEventListener('abort', () => xhr.abort(), { once: true });
+      xhr.send(form);
     });
-    if (response.ok || response.status === 409) return;
-    throw new APIError(response.status, await errorMessage(response));
   }
 
   completeUploadSet(uploadSetId) {
@@ -111,3 +132,39 @@ export class Client {
 
 /** Page publique d'une séquence sur le site de l'instance. */
 export const sequencePageURL = (instance, collectionId) => `${instance}/sequence/${collectionId}`;
+
+/**
+ * Mode démo : mêmes méthodes que Client, sans aucun appel réseau. Simule le délai et un débit
+ * d'environ 600 ko/s pour montrer le déroulé de l'envoi. Rien ne part sur Panoramax.
+ */
+export class SimulatedClient {
+  base = 'demo';
+
+  async createUploadSet() {
+    await wait(700);
+    return { id: `demo-${Date.now()}` };
+  }
+
+  async uploadFile(_set, blob, _name, { onProgress, signal } = {}) {
+    const total = Math.max(blob.size, 50_000);
+    let sent = 0;
+    await wait(150, signal);
+    while (sent < total) {
+      await wait(100, signal);
+      sent = Math.min(total, sent + 60_000 * (0.6 + Math.random() * 0.8));
+      onProgress?.(sent / total);
+    }
+  }
+
+  async completeUploadSet() {
+    await wait(900);
+  }
+}
+
+function wait(ms, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(new AbortError());
+    const t = setTimeout(resolve, ms);
+    signal?.addEventListener('abort', () => { clearTimeout(t); reject(new AbortError()); }, { once: true });
+  });
+}
