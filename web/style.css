@@ -590,3 +590,35 @@ progress { width: 100%; height: 6px; accent-color: var(--accent); }
   [data-state="active"] > .up-icon { animation-duration: 2.4s; }
   .up-bar > span { transition: none; }
 }
+
+/* ---------- Angle de la caméra : photos trop inclinées ---------- */
+
+.banner.warn {
+  background: color-mix(in srgb, var(--pending) 14%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--pending) 45%, var(--line));
+}
+.tilt-banner p { margin: 0; }
+.tilt-banner button { width: 100%; margin-top: 10px; }
+.tilt-text { color: var(--pending); font-weight: 600; }
+.viewer .tilt-text { color: #ffc56b; }
+
+.tilt-badge {
+  position: absolute;
+  left: 4px;
+  top: 4px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #ffb300;
+  color: #3a2600;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 22px;
+  text-align: center;
+  box-shadow: 0 1px 3px #0006;
+}
+.thumb:has(.tilt-badge) { box-shadow: inset 0 0 0 2px #ffb300; }
+
+.capture .aim { transition: background-color .2s; }
+.capture .aim.warn { background: #c25e00e8; }
+.capture .aim.warn .aim-orientation { opacity: 1; font-weight: 600; }

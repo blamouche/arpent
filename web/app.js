@@ -4,7 +4,7 @@ import { buildExifSegment, withExif } from './exif.js';
 import * as demoData from './demo-data.js';
 import { Client, NotLoggedIn, SimulatedClient, normalizeInstance, sequencePageURL } from './panoramax.js';
 import {
-  DEMO, LocationService, CompassService, CameraService, distance, keepAwake, requestCompassPermission, setMode,
+  DEMO, LocationService, CompassService, CameraService, distance, keepAwake, pitchLabel, requestCompassPermission, setMode,
 } from './sensors.js';
 
 const app = document.getElementById('app');
@@ -46,6 +46,9 @@ const DEFAULTS = {
   interval: 2,        // secondes
   minDistance: 4,     // mètres
   maxAccuracy: 20,    // mètres
+  tiltWarning: true,  // signaler les photos trop inclinées (pieds, ciel)
+  maxPitchUp: 30,     // degrés au-dessus de l'horizon
+  maxPitchDown: 30,   // degrés sous l'horizon
   autoOnNewSequence: false, // démarrer la capture auto dès la création d'une séquence
   deleteAfterUpload: true, // libère la place une fois la séquence validée par Panoramax
   privateUpload: false, // envoi privé (owner-only) pour tester sans publier
@@ -66,6 +69,15 @@ const settings = {
     store.set('arpent.settings', values);
   },
 };
+
+/** 'sky', 'ground' ou null : la photo dépasse-t-elle l'inclinaison autorisée dans les réglages ? */
+function tiltOf(pitch) {
+  if (!settings.tiltWarning || pitch == null) return null;
+  if (pitch > settings.maxPitchUp) return 'sky';
+  if (pitch < -settings.maxPitchDown) return 'ground';
+  return null;
+}
+const TILT_TEXT = { sky: 'trop vers le ciel', ground: 'trop vers le sol' };
 
 // ---------- Connexion (jeton « réclamé », comme sur iOS) ----------
 
@@ -481,9 +493,10 @@ async function renderList() {
   const [sequences, photos] = await Promise.all([db.listSequences(), db.allPhotos()]);
   const stats = new Map();
   for (const p of photos) {
-    const s = stats.get(p.sequenceId) ?? { total: 0, pending: 0 };
+    const s = stats.get(p.sequenceId) ?? { total: 0, pending: 0, tilted: 0 };
     s.total += 1;
     if (!p.uploaded) s.pending += 1;
+    if (tiltOf(p.pitch)) s.tilted += 1;
     stats.set(p.sequenceId, s);
   }
   const anyPending = [...stats.values()].some((s) => s.pending > 0);
@@ -503,10 +516,10 @@ async function renderList() {
       ${isIOS() && !isStandalone() && !DEMO ? '<p class="banner">Pour garder vos photos, ajoutez Arpent à l’écran d’accueil : <b>Partager → Sur l’écran d’accueil</b>.</p>' : ''}
       ${!auth.current && !DEMO ? '<p class="banner subtle">Pas encore connecté à Panoramax : <a href="#/settings">se connecter</a> (nécessaire seulement pour l’envoi).</p>' : ''}
       ${sequences.length ? `<ul class="sequences">${sequences.map((seq) => {
-        const s = stats.get(seq.id) ?? { total: 0, pending: 0 };
+        const s = stats.get(seq.id) ?? { total: 0, pending: 0, tilted: 0 };
         return `<li><a href="#/seq/${seq.id}">
           <span class="name">${esc(seq.name)}</span>
-          <span class="meta">${s.total} photo${s.total > 1 ? 's' : ''} · <span class="${s.pending ? 'pending' : 'done'}" data-status="${seq.id}">${statusLabel(seq, s.total, s.pending)}</span></span>
+          <span class="meta">${s.total} photo${s.total > 1 ? 's' : ''} · <span class="${s.pending ? 'pending' : 'done'}" data-status="${seq.id}">${statusLabel(seq, s.total, s.pending)}</span>${s.tilted ? ` · <span class="tilt-text">⚠ ${s.tilted} inclinée${s.tilted > 1 ? 's' : ''}</span>` : ''}</span>
           <span class="up-inline" data-upload-inline="${seq.id}" hidden><span class="up-icon" aria-hidden="true"></span><span class="up-inline-text"></span><span class="up-bar"><span></span></span></span>
         </a></li>`;
       }).join('')}</ul>` : `<div class="empty">
@@ -637,6 +650,7 @@ async function renderCapture(id) {
     try {
       const date = new Date();
       const heading = compass.best(pos);
+      const pitch = compass.pitch;
       const { jpeg, thumb } = await camera.capture();
       const segment = buildExifSegment({
         latitude: pos.latitude, longitude: pos.longitude, altitude: pos.altitude, accuracy: pos.accuracy,
@@ -647,7 +661,8 @@ async function renderCapture(id) {
       await db.addPhoto({
         id: uuid(), sequenceId: id, fileName: fileName(date),
         latitude: pos.latitude, longitude: pos.longitude, altitude: pos.altitude ?? null, accuracy: pos.accuracy,
-        heading: heading?.value ?? null, capturedAt: date.getTime(), uploaded: false, fileDeleted: false,
+        heading: heading?.value ?? null, pitch: pitch == null ? null : Math.round(pitch * 10) / 10,
+        capturedAt: date.getTime(), uploaded: false, fileDeleted: false,
       }, file, thumb);
       lastShot = pos;
       count += 1;
@@ -704,7 +719,13 @@ async function renderCapture(id) {
     $('.aim-heading').textContent = h
       ? `Cap ${Math.round(h.value)}° ${CARDINALS[Math.round(h.value / 45) % 8]}`
       : 'Cap inconnu';
-    $('.aim-orientation').textContent = `${compass.orientationLabel}${h?.source === 'gps' ? ' · selon la marche' : ''}`;
+    const pitch = compass.pitch;
+    const tilt = tiltOf(pitch);
+    aim.classList.toggle('warn', !!tilt);
+    $('.aim-orientation').textContent = tilt
+      ? `⚠ ${TILT_TEXT[tilt]} : ${Math.round(Math.abs(pitch))}°`
+      : [compass.orientationLabel, pitch != null ? pitchLabel(pitch) : null, h?.source === 'gps' ? 'selon la marche' : null]
+        .filter(Boolean).join(' · ');
   };
   updateAim();
   const aimTimer = setInterval(updateAim, 250);
@@ -864,6 +885,8 @@ async function renderDetail(id) {
   if (!seq) { location.hash = '#/'; return; }
   const photos = await db.photosOf(id);
   const pending = photos.filter((p) => !p.uploaded).length;
+  const tilted = photos.filter((p) => tiltOf(p.pitch));
+  const tiltedLocal = tilted.filter((p) => !p.uploaded); // seules celles-ci peuvent encore être écartées avant l'envoi
   const unfinished = !pending && photos.length > 0 && seq.uploadSetId && !seq.uploadCompleted; // finalisation interrompue
   let meters = 0;
   for (let i = 1; i < photos.length; i++) meters += distance(photos[i - 1], photos[i]);
@@ -879,10 +902,14 @@ async function renderDetail(id) {
       ${photos.length ? '<div class="map" id="map" role="region" aria-label="Carte du parcours"></div>' : ''}
       <p class="meta">${photos.length} photo${photos.length > 1 ? 's' : ''} · ${(meters / 1000).toFixed(2)} km · ${minutes} min ·
         <span class="${pending ? 'pending' : 'done'}" data-status="${id}">${statusLabel(seq, photos.length, pending)}</span></p>
+      ${tilted.length ? `<div class="banner warn tilt-banner">
+        <p>⚠ ${tilted.length} photo${tilted.length > 1 ? 's' : ''} trop inclinée${tilted.length > 1 ? 's' : ''} (pieds ou ciel), marquée${tilted.length > 1 ? 's' : ''} ⚠ ci-dessous.${tiltedLocal.length < tilted.length ? ` ${tilted.length - tiltedLocal.length} déjà envoyée${tilted.length - tiltedLocal.length > 1 ? 's' : ''}.` : ''}</p>
+        ${tiltedLocal.length ? `<button class="secondary" id="dropTilted" data-upload-btn>Écarter ${tiltedLocal.length > 1 ? `les ${tiltedLocal.length} photos non envoyées` : 'la photo non envoyée'}</button>` : ''}
+      </div>` : ''}
       <section class="upload" data-upload="${id}" aria-label="Envoi sur Panoramax" hidden></section>
       ${seq.uploadCompleted && seq.uploadSetId && !DEMO ? '<p class="hint" id="pmx-link">Recherche de la séquence sur Panoramax…</p>' : ''}
       ${seq.source ? `<p class="hint">Photos : ${esc(seq.source.author)}, licence <a href="${esc(seq.source.licenseURL)}" target="_blank" rel="noopener">${esc(seq.source.license)}</a>, <a href="${esc(seq.source.url)}" target="_blank" rel="noopener">voir sur Panoramax</a>.</p>` : ''}
-      <div class="grid" data-upload-thumbs="${id}">${photos.map((p) => `<button class="thumb ${p.uploaded ? 'uploaded' : ''}" data-id="${p.id}" aria-label="Photo ${esc(p.fileName)}"></button>`).join('')}</div>
+      <div class="grid" data-upload-thumbs="${id}">${photos.map((p) => `<button class="thumb ${p.uploaded ? 'uploaded' : ''}" data-id="${p.id}" aria-label="Photo ${esc(p.fileName)}${tiltOf(p.pitch) ? `, ${TILT_TEXT[tiltOf(p.pitch)]}` : ''}">${tiltOf(p.pitch) ? `<span class="tilt-badge" title="${TILT_TEXT[tiltOf(p.pitch)]} : ${Math.round(Math.abs(p.pitch))}°">⚠</span>` : ''}</button>`).join('')}</div>
     </main>
     <footer class="actions">
       <button class="danger" id="delete">Supprimer</button>
@@ -923,6 +950,16 @@ async function renderDetail(id) {
     requestCompassPermission();
     location.hash = `#/capture/${id}`;
   };
+  const dropTilted = app.querySelector('#dropTilted');
+  if (dropTilted) {
+    dropTilted.onclick = async () => {
+      const n = tiltedLocal.length;
+      if (!confirm(`Supprimer de ce téléphone ${n > 1 ? `les ${n} photos trop inclinées non envoyées` : 'la photo trop inclinée non envoyée'} ? Elles ne seront pas envoyées sur Panoramax.`)) return;
+      for (const p of tiltedLocal) await db.deletePhoto(p.id);
+      toast(`${n} photo${n > 1 ? 's' : ''} écartée${n > 1 ? 's' : ''}.`);
+      render();
+    };
+  }
   app.querySelector('#delete').onclick = async () => {
     if (!confirm(`Supprimer « ${seq.name} » et ses ${photos.length} photos de ce téléphone ?`)) return;
     await db.deleteSequence(id);
@@ -990,7 +1027,7 @@ async function openViewer(photo) {
   el.innerHTML = `
     <img src="${url}" alt="">
     <div class="info">
-      <span>${new Date(photo.capturedAt).toLocaleString('fr-FR')} · ±${Math.round(photo.accuracy)} m${photo.heading != null ? ` · cap ${Math.round(photo.heading)}°` : ''}${photo.uploaded ? ' · envoyée' : ''}${photo.fileDeleted ? ' (fichier supprimé du téléphone)' : ''}</span>
+      <span>${new Date(photo.capturedAt).toLocaleString('fr-FR')} · ±${Math.round(photo.accuracy)} m${photo.heading != null ? ` · cap ${Math.round(photo.heading)}°` : ''}${photo.pitch != null ? ` · ${tiltOf(photo.pitch) ? `<b class="tilt-text">⚠ ${TILT_TEXT[tiltOf(photo.pitch)]} : ${Math.round(Math.abs(photo.pitch))}°</b>` : `inclinaison ${pitchLabel(photo.pitch)}`}` : ''}${photo.uploaded ? ' · envoyée' : ''}${photo.fileDeleted ? ' (fichier supprimé du téléphone)' : ''}</span>
       <div class="row">
         <button class="danger" id="vdel">Supprimer la photo</button>
         <button class="primary" id="vclose">Fermer</button>
@@ -1043,6 +1080,13 @@ async function renderSettings() {
         <label>Précision GPS maximale (m)<input id="maxAccuracy" type="number" min="1" step="1" value="${settings.maxAccuracy}"></label>
       </section>
       <section>
+        <h2>Angle de la caméra</h2>
+        <label class="check"><input id="tiltWarning" type="checkbox" ${settings.tiltWarning ? 'checked' : ''}>Signaler les photos trop inclinées</label>
+        <label>Vers le ciel, au maximum (°)<input id="maxPitchUp" type="number" min="0" max="90" step="5" value="${settings.maxPitchUp}"></label>
+        <label>Vers le sol, au maximum (°)<input id="maxPitchDown" type="number" min="0" max="90" step="5" value="${settings.maxPitchDown}"></label>
+        <p class="hint">0° = caméra vers l’horizon, téléphone tenu droit. Au-delà de ces angles, la photo est marquée ⚠ (photo de pieds ou de ciel) et l’écran de prise de vue prévient en direct. L’angle est mesuré au moment de la prise ; valeurs par défaut : ${DEFAULTS.maxPitchUp}° et ${DEFAULTS.maxPitchDown}°.</p>
+      </section>
+      <section>
         <h2>Stockage</h2>
         <label class="check"><input id="deleteAfterUpload" type="checkbox" ${settings.deleteAfterUpload ? 'checked' : ''}>Supprimer les photos du téléphone après envoi</label>
         <p class="hint">Une fois la séquence envoyée et validée par Panoramax, les photos en pleine taille sont effacées de ce téléphone pour libérer de la place. La vignette, la position et la carte restent ; la photo reste consultable sur Panoramax.</p>
@@ -1064,12 +1108,14 @@ async function renderSettings() {
     settings.save();
     render();
   };
-  for (const key of ['interval', 'minDistance', 'maxAccuracy']) {
+  for (const key of ['interval', 'minDistance', 'maxAccuracy', 'maxPitchUp', 'maxPitchDown']) {
     $(`#${key}`).onchange = (e) => {
       const v = Number(e.target.value);
-      if (Number.isFinite(v) && v >= 0) { settings[key] = v; settings.save(); } else e.target.value = settings[key];
+      const ok = Number.isFinite(v) && v >= 0 && (!key.startsWith('maxPitch') || v <= 90);
+      if (ok) { settings[key] = v; settings.save(); } else e.target.value = settings[key];
     };
   }
+  $('#tiltWarning').onchange = (e) => { settings.tiltWarning = e.target.checked; settings.save(); };
   $('#autoOnNewSequence').onchange = (e) => { settings.autoOnNewSequence = e.target.checked; settings.save(); };
   $('#deleteAfterUpload').onchange = (e) => { settings.deleteAfterUpload = e.target.checked; settings.save(); };
   $('#privateUpload').onchange = (e) => { settings.privateUpload = e.target.checked; settings.save(); };

@@ -142,6 +142,24 @@ export function cameraHeadingFromIOS(compassHeading, orientation) {
   return (compassHeading + fix + 360) % 360;
 }
 
+/**
+ * Inclinaison de la caméra arrière par rapport à l'horizon, en degrés, d'après la gravité :
+ * 0 = vers l'horizon, positif = vers le ciel, négatif = vers le sol (-90 : téléphone à plat,
+ * écran vers le haut). Valable en portrait comme en paysage.
+ */
+export function cameraPitch(beta, gamma) {
+  const r = Math.PI / 180;
+  const sinElevation = -Math.cos(beta * r) * Math.cos(gamma * r); // -Z de l'appareil · verticale
+  return Math.asin(Math.max(-1, Math.min(1, sinElevation))) / r;
+}
+
+/** Libellé court d'une inclinaison : « 12° vers le sol », « horizontale ». */
+export function pitchLabel(pitch) {
+  const a = Math.round(Math.abs(pitch));
+  if (a < 3) return 'horizontale';
+  return `${a}° vers ${pitch > 0 ? 'le ciel' : 'le sol'}`;
+}
+
 const ORIENTATION_LABELS = {
   portrait: 'portrait',
   'portrait-inverse': 'portrait inversé',
@@ -153,9 +171,16 @@ const ORIENTATION_LABELS = {
 export class CompassService {
   heading = null;
   orientation = null; // portrait, landscape-left, landscape-right, portrait-inverse, flat
+  #pitch = null;
+  #pitchAt = 0;
   #at = 0;
+  #demoStart = Date.now();
   #handler = (e) => {
-    if (e.beta != null && e.gamma != null) this.orientation = physicalOrientation(e.beta, e.gamma);
+    if (e.beta != null && e.gamma != null) {
+      this.orientation = physicalOrientation(e.beta, e.gamma);
+      this.#pitch = cameraPitch(e.beta, e.gamma);
+      this.#pitchAt = Date.now();
+    }
     if (typeof e.webkitCompassHeading === 'number' && e.webkitCompassHeading >= 0) {
       this.heading = cameraHeadingFromIOS(e.webkitCompassHeading, this.orientation); // iOS
     } else if (e.absolute && e.alpha != null && e.beta != null && e.gamma != null) {
@@ -181,6 +206,19 @@ export class CompassService {
     if (this.heading != null && Date.now() - this.#at < 2000) return { value: this.heading, ref: 'M', source: 'compass' };
     if (position?.course != null && position.speed > 0.5) return { value: position.course, ref: 'T', source: 'gps' };
     return null;
+  }
+
+  /**
+   * Inclinaison actuelle de la caméra (degrés), ou null si inconnue. En démo, sans capteur,
+   * elle est simulée : tenue droite, avec de temps en temps un regard vers les pieds ou le ciel.
+   */
+  get pitch() {
+    if (this.#pitch != null && Date.now() - this.#pitchAt < 2000) return this.#pitch;
+    if (!DEMO) return null;
+    const t = (Date.now() - this.#demoStart) / 1000;
+    const cycle = Math.floor(t / 40), inCycle = t % 40;
+    if (inCycle >= 26 && inCycle < 32) return cycle % 2 ? 48 : -58;
+    return 4 * Math.sin(t / 3) - 2;
   }
 
   /** Libellé de l'orientation de prise : capteurs si disponibles, sinon forme de l'écran. */
