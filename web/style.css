@@ -152,7 +152,10 @@ progress { width: 100%; height: 6px; accent-color: var(--accent); }
 .sequences { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .sequences a {
   display: grid;
-  gap: 2px;
+  grid-template-columns: 64px 1fr;
+  column-gap: 12px;
+  row-gap: 2px;
+  align-items: center;
   padding: 12px 14px;
   border-radius: 12px;
   background: var(--surface);
@@ -161,6 +164,20 @@ progress { width: 100%; height: 6px; accent-color: var(--accent); }
   text-decoration: none;
 }
 .sequences .name { font-weight: 600; overflow-wrap: anywhere; }
+.sequences .name, .sequences .meta, .sequences .up-inline { grid-column: 2; }
+/* Vignette carrée de la trace. */
+.sequences .seq-map {
+  grid-row: 1 / span 3;
+  align-self: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--accent) 6%, var(--bg)) center / cover no-repeat;
+}
+.sequences .seq-map svg { display: block; }
+.sequences .seq-map.empty { background-image: none; border-style: dashed; }
 .sequences .meta { color: var(--muted); font-size: 14px; }
 
 /* ---------- Détail ---------- */

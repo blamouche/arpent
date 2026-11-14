@@ -525,6 +525,7 @@ async function renderList() {
       ${sequences.length ? `<ul class="sequences">${sequences.map((seq) => {
         const s = stats.get(seq.id) ?? { total: 0, pending: 0, tilted: 0 };
         return `<li><a href="#/seq/${seq.id}">
+          <span class="seq-map" data-seq-map="${seq.id}" aria-hidden="true"></span>
           <span class="name">${esc(seq.name)}</span>
           <span class="meta">${s.total} photo${s.total > 1 ? 's' : ''} · <span class="${s.pending ? 'pending' : 'done'}" data-status="${seq.id}">${statusLabel(seq, s.total, s.pending)}</span>${s.tilted ? ` · <span class="tilt-text">⚠ ${s.tilted} inclinée${s.tilted > 1 ? 's' : ''}</span>` : ''}</span>
           <span class="up-inline" data-upload-inline="${seq.id}" hidden><span class="up-icon" aria-hidden="true"></span><span class="up-inline-text"></span><span class="up-bar"><span></span></span></span>
@@ -554,6 +555,7 @@ async function renderList() {
     location.hash = `#/capture/${seq.id}`;
   };
   if (DEMO && !demoData.isSeeded()) seedDemoSequence();
+  fillSequenceMaps(photos);
   const sendAll = document.getElementById('sendAll');
   if (sendAll) {
     sendAll.onclick = () => uploadAll(sequences
@@ -948,6 +950,132 @@ async function trackMap(container, photos, onPick) {
     map.on('mouseleave', 'photos', () => { map.getCanvas().style.cursor = ''; tip.remove(); });
   });
   return map;
+}
+
+// ---------- Vignettes de carte de la liste ----------
+// Une seule carte cachée dessine la trace de chaque séquence puis en fait une image (JPEG),
+// gardée sur l'appareil et refaite seulement quand la séquence change. En attendant, ou sans
+// réseau, la trace est dessinée seule (SVG).
+
+const MAP_THUMBS_KEY = 'arpent.mapThumbs';
+const MAP_THUMB_SIZE = 64; // px CSS, rendu en x2
+const mapThumbs = new Map(Object.entries(store.get(MAP_THUMBS_KEY, {})));
+const thumbsInProgress = new Set();
+let thumbQueue = Promise.resolve();
+let thumbRendererPromise = null;
+
+function saveMapThumb(id, key, url) {
+  mapThumbs.delete(id);
+  mapThumbs.set(id, { key, url });
+  while (mapThumbs.size > 60) mapThumbs.delete(mapThumbs.keys().next().value); // les plus anciennes partent
+  store.set(MAP_THUMBS_KEY, Object.fromEntries(mapThumbs));
+}
+
+/** Trace seule, projetée simplement dans le carré (sans fond de carte). */
+function trackSVG(coords, color) {
+  const k = Math.cos((coords[0][1] * Math.PI) / 180);
+  const xs = coords.map((c) => c[0] * k), ys = coords.map((c) => -c[1]);
+  const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+  const span = Math.max(x1 - x0, y1 - y0) || 1, pad = 10, size = 64 - 2 * pad;
+  const px = (i) => [pad + ((xs[i] - x0) / span) * size + (size - ((x1 - x0) / span) * size) / 2,
+    pad + ((ys[i] - y0) / span) * size + (size - ((y1 - y0) / span) * size) / 2];
+  const pts = coords.map((_, i) => px(i).map((v) => v.toFixed(1)).join(',')).join(' ');
+  const [sx, sy] = px(0), [ex, ey] = px(coords.length - 1);
+  return `<svg viewBox="0 0 64 64" width="100%" height="100%"><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="${sx}" cy="${sy}" r="3.5" fill="var(--done)" stroke="#fff" stroke-width="1.5"/><circle cx="${ex}" cy="${ey}" r="3.5" fill="var(--danger)" stroke="#fff" stroke-width="1.5"/></svg>`;
+}
+
+/** Carte hors écran partagée, prête à dessiner une trace (abandonne au bout de 15 s). */
+function thumbRenderer() {
+  thumbRendererPromise ??= (async () => {
+    const maplibregl = await loadMapLibre();
+    const css = getComputedStyle(document.documentElement);
+    const color = (name) => css.getPropertyValue(name).trim();
+    const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+    const el = document.createElement('div');
+    el.style.cssText = `position:fixed;left:-10000px;top:0;width:${MAP_THUMB_SIZE}px;height:${MAP_THUMB_SIZE}px`;
+    document.body.append(el);
+    const map = new maplibregl.Map({
+      container: el,
+      style: `https://tiles.openfreemap.org/styles/${dark ? 'dark' : 'positron'}`,
+      center: [2.35, 48.85], zoom: 12, interactive: false, attributionControl: false,
+      preserveDrawingBuffer: true, pixelRatio: 2, fadeDuration: 0,
+    });
+    await new Promise((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error('Carte indisponible.')), 15_000);
+      map.once('load', () => { clearTimeout(t); resolve(); });
+    });
+    const empty = { type: 'FeatureCollection', features: [] };
+    map.addSource('track', { type: 'geojson', data: empty });
+    map.addSource('ends', { type: 'geojson', data: empty });
+    map.addLayer({
+      id: 'track', type: 'line', source: 'track', layout: { 'line-join': 'round', 'line-cap': 'round' },
+      paint: { 'line-color': color('--accent'), 'line-width': 3 },
+    });
+    map.addLayer({
+      id: 'ends', type: 'circle', source: 'ends',
+      paint: {
+        'circle-radius': 3.5, 'circle-stroke-color': '#fff', 'circle-stroke-width': 1.5,
+        'circle-color': ['match', ['get', 'role'], 'start', color('--done'), color('--danger')],
+      },
+    });
+    return { map, dark };
+  })().catch((e) => { thumbRendererPromise = null; throw e; });
+  return thumbRendererPromise;
+}
+
+async function renderMapThumb(coords) {
+  const { map } = await thumbRenderer();
+  const point = (c, role) => ({ type: 'Feature', properties: { role }, geometry: { type: 'Point', coordinates: c } });
+  map.getSource('track').setData(coords.length > 1
+    ? { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } }
+    : { type: 'FeatureCollection', features: [] });
+  map.getSource('ends').setData({ type: 'FeatureCollection', features: [point(coords[0], 'start'), point(coords.at(-1), 'end')] });
+  if (coords.length === 1) {
+    map.jumpTo({ center: coords[0], zoom: 16 });
+  } else {
+    const bounds = coords.reduce((b, c) => b.extend(c), new window.maplibregl.LngLatBounds(coords[0], coords[0]));
+    map.fitBounds(bounds, { padding: 9, maxZoom: 17, animate: false });
+  }
+  // « idle » : tuiles chargées et image dessinée.
+  const complete = await new Promise((resolve) => {
+    const t = setTimeout(() => resolve(false), 10_000);
+    map.once('idle', () => { clearTimeout(t); resolve(true); });
+    map.triggerRepaint();
+  });
+  if (!complete) throw new Error('Tuiles trop lentes.');
+  return map.getCanvas().toDataURL('image/jpeg', 0.85);
+}
+
+/** Remplit les vignettes de la liste : image en cache, sinon trace seule puis carte dessinée. */
+function fillSequenceMaps(photos) {
+  const bySeq = new Map();
+  for (const p of photos) (bySeq.get(p.sequenceId) ?? bySeq.set(p.sequenceId, []).get(p.sequenceId)).push(p);
+  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+  const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+  const show = (el, url) => { el.innerHTML = ''; el.style.backgroundImage = `url("${url}")`; };
+
+  for (const el of document.querySelectorAll('[data-seq-map]')) {
+    const id = el.dataset.seqMap;
+    const list = (bySeq.get(id) ?? []).sort((a, b) => a.capturedAt - b.capturedAt);
+    if (!list.length) { el.classList.add('empty'); continue; }
+    const coords = list.map((p) => [p.longitude, p.latitude]);
+    const key = `${list.length}:${list.at(-1).id}:${dark ? 'dark' : 'light'}:${accent}`;
+    const cached = mapThumbs.get(id);
+    if (cached?.key === key) { show(el, cached.url); continue; }
+    el.innerHTML = trackSVG(coords, accent);
+    if (thumbsInProgress.has(id + key)) continue;
+    thumbsInProgress.add(id + key);
+    thumbQueue = thumbQueue
+      .then(() => renderMapThumb(coords))
+      .then((url) => {
+        saveMapThumb(id, key, url);
+        const target = document.querySelector(`[data-seq-map="${id}"]`);
+        if (target) show(target, url);
+      })
+      .catch(() => { /* hors ligne : la trace seule reste affichée */ })
+      .finally(() => thumbsInProgress.delete(id + key));
+  }
 }
 
 /**
