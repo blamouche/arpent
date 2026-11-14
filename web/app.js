@@ -1363,7 +1363,7 @@ async function renderSettings() {
       <section>
         <h2>Écran</h2>
         <label class="check"><input id="keepScreenOn" type="checkbox" ${settings.keepScreenOn ? 'checked' : ''}>Écran toujours allumé pendant la prise de vue</label>
-        <p class="hint">Empêche la mise en veille tant que la caméra est ouverte, pour que le mode auto continue. Le témoin ☀ en haut de l’écran de capture devient orange si le téléphone le refuse. Verrouiller le téléphone ou changer d’app arrête toujours la capture.</p>
+        <p class="hint">Empêche la mise en veille tant que la caméra est ouverte, pour que le mode auto continue. Le témoin ☀ en bas à gauche de l’écran de capture devient orange si le téléphone le refuse. Verrouiller le téléphone ou changer d’app arrête toujours la capture.</p>
       </section>
       <section>
         <h2>Mode auto</h2>

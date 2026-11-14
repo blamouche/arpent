@@ -1,88 +1,48 @@
-# Arpent Web (prototype)
+# Arpent Web : notes techniques
 
-Version web (PWA) d'Arpent : on ouvre une URL sur iPhone ou Android, on capture une séquence, puis on l'envoie sur Panoramax. Même parcours et mêmes règles que l'app iOS, sans App Store.
+La présentation complète (fonctionnalités, captures d'écran, réglages, utilisation) est dans le [README du projet](../README.md). Cette page rassemble les détails d'implémentation.
 
-- HTML/CSS/JS statiques, aucun build, aucun serveur à soi : l'API Panoramax accepte les appels depuis un navigateur (CORS). Seule bibliothèque : [MapLibre GL JS](https://maplibre.org) 4.7.1 (BSD-3), embarquée dans `vendor/` pour fonctionner hors ligne.
-- Carte de chaque séquence sur un fond OpenStreetMap sobre, sans points d'intérêt ([OpenFreeMap](https://openfreemap.org), sans clé) : trace, un point par photo (départ vert, arrivée rouge) avec un cône qui montre la direction de prise de vue ; toucher un point ouvre la photo.
-- Mode auto temps + distance, déclencheur manuel, indicateur GPS, écran maintenu allumé.
-- Indicateur de prise : boussole avec le cap de la caméra arrière (degrés et point cardinal) et l'orientation du téléphone.
-- EXIF complet écrit dans le JPEG (GPS, altitude, précision, cap, vitesse, date avec millisecondes et fuseau).
-- Photos stockées sur le téléphone (IndexedDB), l'app s'ouvre hors ligne (service worker).
-- Connexion par « jeton réclamé » sur le site de l'instance, envoi reprenable.
-- **Suivi de l'envoi en direct** : panneau en trois étapes (préparation, envoi des photos, finalisation) avec une icône par état (fait, en cours, en attente, erreur, arrêté), nombre de photos restantes, Mo envoyés, débit et temps restant, bouton **Arrêter**. Sur les vignettes : photos en attente estompées, anneau d'avancement sur la photo en cours, pastille verte une fois envoyée. Dans la liste, chaque séquence affiche son état, « en attente » pendant un *Tout envoyer*. L'écran reste allumé pendant l'envoi.
-- **Angle de la caméra** (*Réglages → Angle de la caméra*, actif par défaut, seuils 15° vers le ciel et 15° vers le sol) : l'inclinaison de la caméra par rapport à l'horizon est mesurée par l'accéléromètre et enregistrée avec chaque photo. Au-delà des seuils, l'écran de prise de vue prévient en direct (pastille orange), et la photo est marquée ⚠ dans la grille, la visionneuse et la liste. Un bandeau permet d'écarter d'un coup les photos inclinées pas encore envoyées. Option **« En mode auto, ne pas prendre les photos trop inclinées »** (cochée par défaut) : le mode auto se met en pause tant que la caméra dépasse les seuils ; le déclencheur manuel prend toujours la photo. En démo, l'inclinaison est simulée (regard vers les pieds ou le ciel de temps en temps).
-- **Vignette de carte dans la liste des séquences** : petit carré avec la trace (départ vert, arrivée rouge) sur le fond de carte. Une seule carte cachée dessine les vignettes l'une après l'autre ; l'image est gardée sur l'appareil (`localStorage`, 60 séquences au plus) et refaite seulement si la séquence change. En attendant ou sans réseau, la trace s'affiche seule.
-- **Mini-carte dans la vue caméra** (carré en bas à droite, nord en haut) : position (point bleu avec un cône dans la direction de la caméra), trace en cours et points des photos prises. Elle suit la position ; un toucher l'agrandit en grand carré, un second la réduit. Sans réseau, la case reste vide. Le bouton **Terminer** est grand et blanc, et le compteur de photos est compact (icône + nombre).
-- **Écran toujours allumé** (*Réglages → Écran*, activé par défaut) : verrou d'écran (API Wake Lock), redemandé s'il est perdu, avec en secours une vidéo noire muette en boucle (`vendor/keep-awake.mp4`, 2 ko) quand le navigateur refuse le verrou. Témoin ☀ en bas à gauche de la vue caméra, orange si la mise en veille reste possible. Verrouiller le téléphone ou changer d'app arrête quand même la capture.
-- **Mode auto dès la création** (*Réglages → Mode auto*, désactivé par défaut) : « Nouvelle séquence » ouvre la caméra avec le mode auto en marche ; « Reprendre » une séquence reste en manuel.
-- **Suppression après envoi, activée par défaut** (*Réglages → Stockage*, décochable) : une fois la séquence validée par Panoramax, les photos pleine taille sont effacées du téléphone ; vignette, position et carte restent. Le bilan d'envoi indique la place libérée.
-- Une fois une séquence envoyée, son détail affiche un **lien vers la séquence sur Panoramax** (`<instance>/sequence/<id>`), ou un lien par séquence si le serveur l'a découpée.
-- **Envoi privé (test)** dans les réglages : les séquences sont envoyées en visibilité `owner-only`, visibles par vous seul sur Panoramax.
-
-## Lancer en local
+## Lancer
 
 ```bash
 python3 -m http.server 8137 --directory web
 ```
 
-Puis ouvrir <http://localhost:8137/>.
+Puis ouvrir <http://localhost:8137/>. Sans build, sans dépendance : il n'y a rien à installer.
 
-## Modes Démo et Live
+## Choix techniques
 
-Un interrupteur **Démo / Live** en haut de la liste des séquences choisit le mode. Le choix est gardé sur l'appareil ; `?demo` ou `?live` dans l'URL le force.
+- **Aucun serveur à soi** : l'API Panoramax accepte les appels cross-origin (CORS), y compris le préflight `POST` avec `Authorization`.
+- **Envoi avec progression** : `XMLHttpRequest` plutôt que `fetch`, seul moyen d'avoir l'avancement d'un envoi (`upload.onprogress`). Un `409` (photo déjà reçue) compte comme un succès, ce qui rend l'envoi reprenable.
+- **Upload set** :
+  - un nouveau est créé si l'instance ou la visibilité change, ou si le précédent est terminé ;
+  - un `404` (upload set supprimé côté serveur) en recrée un, une seule fois.
+- **Cap** :
+  - Android : l'événement `deviceorientationabsolute` donne les angles, et l'app calcule directement la direction de l'axe −Z de l'appareil (le dos) ;
+  - iPhone : `webkitCompassHeading` donne la direction du haut de l'appareil. Elle est corrigée de ±90° en paysage d'après l'orientation physique, déduite de la gravité (beta, gamma).
+- **Inclinaison de la caméra** : `asin(−cos β · cos γ)`, en degrés au-dessus de l'horizon. Elle vaut pour le portrait comme pour le paysage et est enregistrée avec chaque photo (`pitch`). Les avertissements sont calculés à l'affichage selon les seuils du moment.
+- **Écran allumé** :
+  - l'API Wake Lock en premier, redemandée si le verrou est relâché et au retour au premier plan ;
+  - en secours, `vendor/keep-awake.mp4` (vidéo noire de 64×64 px, 2 s, muette) jouée en boucle et invisible.
+- **Cartes** : MapLibre GL JS 4.7.1, embarqué pour fonctionner hors ligne, avec les styles OpenFreeMap `positron` et `dark` (sans clé, sans points d'intérêt).
+  - **Détail d'une séquence** : une carte interactive.
+  - **Vue caméra** : une mini-carte non interactive, qui ne pousse à la carte que ce qui a changé.
+  - **Liste** : une seule carte hors écran (`preserveDrawingBuffer`) dessine les vignettes une à une en JPEG.
+    - Le cache est dans `localStorage` (`arpent.mapThumbs`, 60 séquences au plus).
+    - La clé est le nombre de photos, la dernière photo, le thème et la couleur.
+    - En attendant, la trace s'affiche seule en SVG.
+- **Stockage** : IndexedDB, avec une base `arpent` (Live) et une base `arpent-demo` (Démo), et trois magasins : `sequences`, `photos` (métadonnées) et `blobs` (JPEG et vignette). « Supprimer après envoi » efface le JPEG et garde la vignette.
+- **Réglages** :
+  - ils sont dans `localStorage` (`arpent.settings`), avec un numéro de version pour faire évoluer les valeurs par défaut sans écraser un choix de l'utilisateur ;
+  - version 2 : suppression après envoi activée par défaut ;
+  - version 4 : seuils d'inclinaison à 15°.
+- **Démo** :
+  - `SimulatedClient` reproduit les méthodes du client Panoramax sans réseau (débit d'environ 600 ko/s) ;
+  - la position est une marche simulée à 1,4 m/s, avec une pause de 6 s toutes les 20 s ;
+  - l'inclinaison est simulée en l'absence de capteur.
+- **Service worker** : le réseau d'abord (pour toujours avoir la dernière version), le cache en secours. Le nom du cache (`arpent-vNN`) change à chaque version publiée.
 
-- **Démo (par défaut)**, thème violet : la position (marche avec des arrêts) et la caméra (mire) sont simulées, les données vont dans une base séparée et l'envoi est **simulé** (déroulé et débit factices) : aucune photo ne part sur Panoramax.
-  Au premier lancement, une **séquence d'exemple** (14 photos iPhone, Paris, 2017) est téléchargée depuis `panoramax.openstreetmap.fr` : vraies photos, positions, caps et dates. Elle est sous licence CC BY-SA 4.0 ; l'auteur et un lien vers Panoramax sont affichés dans le détail. Rien n'est copié dans ce dépôt. *Réglages → Réinitialiser la démo* efface les données de démo et la retélécharge.
-- **Live**, thème vert : vraie caméra, vrai GPS, boussole et envoi sur Panoramax. Un point rouge « enregistrement » clignote en haut de chaque écran.
+## Tests manuels utiles
 
-## Tester sur un téléphone
-
-Version en ligne : <https://blamouche.github.io/arpent/> (s'ouvre en mode démo ; passer en **Live** en haut de l'écran), publiée automatiquement depuis `web/` à chaque push sur `main`.
-
-La caméra et le GPS exigent **HTTPS**. Deux options :
-
-- **Hébergement statique** (GitHub Pages, Netlify, Cloudflare Pages…) : publier le dossier `web/` tel quel.
-- **Tunnel** vers le serveur local, par exemple `cloudflared tunnel --url http://localhost:8137`, puis ouvrir l'URL https affichée sur le téléphone.
-
-Sur iPhone, **ajouter à l'écran d'accueil** (Partager → Sur l'écran d'accueil) : sinon Safari peut effacer les photos après 7 jours sans visite.
-
-## Tester l'envoi sur une vraie instance
-
-Il n'existe pas d'instance Panoramax publique de test. Pour essayer l'envoi de bout en bout sans rien publier :
-
-1. Passer en **Live**, puis dans les réglages se connecter à `panoramax.openstreetmap.fr` et cocher **Envoi privé (test)**.
-2. Capturer une courte séquence et l'envoyer : le bouton affiche « Envoyer (privé) » et la séquence devient « envoyée (privée) ».
-3. Vérifier la séquence sur le site de l'instance (connecté), puis la supprimer depuis votre compte.
-
-L'instance OSM France accepte `anyone` et `owner-only` (`GET /api/configuration` → `visibility.possible_values`).
-
-## Fichiers
-
-| Fichier | Rôle |
-|---|---|
-| `index.html`, `style.css` | page unique, 4 écrans (liste, capture, détail, réglages) |
-| `app.js` | écrans, réglages, connexion, envoi reprenable |
-| `sensors.js` | GPS, boussole, caméra, écran allumé, mode démo |
-| `demo-data.js` | séquence d'exemple téléchargée depuis Panoramax en mode démo |
-| `exif.js` | segment EXIF/GPS inséré dans le JPEG sans recompression |
-| `db.js` | IndexedDB : séquences, métadonnées des photos, images |
-| `panoramax.js` | client API (routes identiques à l'app iOS) |
-| `vendor/maplibre/` | MapLibre GL JS 4.7.1 (carte), licence BSD-3 incluse |
-| `sw.js`, `manifest.webmanifest`, `icons/` | PWA installable et hors ligne |
-
-## Ce qui a été vérifié
-
-- Capture auto en mode démo : une photo toutes les ~4 s en marche, aucune pendant les arrêts.
-- EXIF relu avec Pillow : position, altitude, précision, cap, vitesse, dates UTC et locale avec millisecondes.
-- Connexion et envoi contre un faux serveur Panoramax local (appels cross-origin) : panne au 3e fichier, puis reprise sur le même upload set avec seulement les photos manquantes, puis `complete`. Suivi en direct vérifié contre ce faux serveur : *Tout envoyer* avec une séquence en attente, erreur affichée, arrêt en cours d'envoi puis reprise.
-- En-têtes CORS de `panoramax.openstreetmap.fr` (préflight `POST` avec `Authorization`).
-
-**Pas encore testé** : sur un vrai iPhone / Android (caméra réelle, boussole, wake lock), et la connexion + l'envoi sur une vraie instance Panoramax.
-
-## Limites connues
-
-- **Qualité photo** : l'image vient du flux vidéo de la caméra (souvent 1920×1080 à 4K), sans le traitement photo natif. La résolution obtenue s'affiche en bas à droite de l'écran de capture. Piste Android : `ImageCapture.takePhoto()` (pleine résolution), à condition de gérer l'orientation.
-- **Orientation** : l'app fonctionne en portrait et en paysage (marges adaptées à l'encoche). L'image suit l'orientation de l'écran : pour photographier en paysage, désactiver le verrouillage de rotation, sinon la photo est enregistrée de travers.
-- **Cap** : direction du dos du téléphone (caméra arrière), en portrait comme en paysage. Sur iPhone, Safari donne la direction du haut de l'appareil : en paysage, Arpent la corrige de ±90° selon l'orientation physique (gravité), même avec la rotation verrouillée. Sur Android, le cap est calculé directement pour le dos. Boussole magnétique (`GPSImgDirectionRef = M`), sinon direction de la marche. Sur iPhone, l'accès à la boussole est demandé au démarrage d'une séquence. L'écran de capture affiche le cap et l'orientation (portrait, paysage, à plat) qui seront enregistrés.
-- **Premier plan** : écran verrouillé ou autre app, la capture et l'envoi s'arrêtent (comme la v0.1 iOS).
-- **Redirection après connexion** : si l'instance refuse `next_url`, revenir manuellement dans Arpent puis toucher « J'ai terminé, vérifier » dans les réglages.
+- **Faux serveur Panoramax** : un petit serveur Python local qui répond aux routes `upload_sets`, `files` et `complete` avec des en-têtes CORS. Il suffit pour tester l'envoi, la reprise après panne et l'arrêt. Pointer l'instance des réglages dessus et enregistrer un jeton de test dans `arpent.auth`.
+- **Connaître les visibilités acceptées par une instance** : `GET /api/configuration` → `visibility.possible_values` (OSM France : `anyone`, `owner-only`).
