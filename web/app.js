@@ -46,6 +46,7 @@ const DEFAULTS = {
   interval: 2,        // secondes
   minDistance: 4,     // mètres
   maxAccuracy: 20,    // mètres
+  autoOnNewSequence: false, // démarrer la capture auto dès la création d'une séquence
   deleteAfterUpload: true, // libère la place une fois la séquence validée par Panoramax
   privateUpload: false, // envoi privé (owner-only) pour tester sans publier
 };
@@ -529,6 +530,7 @@ async function renderList() {
     navigator.storage?.persist?.().catch(() => {});
     const seq = { id: uuid(), name: `Séquence du ${dateFmt.format(new Date())}`, createdAt: Date.now(), uploadSetId: null, uploadInstance: null, uploadCompleted: false };
     await db.putSequence(seq);
+    autoStartFor = seq.id; // nouvelle séquence : mode auto selon le réglage (pas en reprise)
     location.hash = `#/capture/${seq.id}`;
   };
   if (DEMO && !demoData.isSeeded()) seedDemoSequence();
@@ -562,9 +564,14 @@ function seedDemoSequence() {
 
 // ---------- Écran : capture ----------
 
+// Séquence tout juste créée : la capture démarre en mode auto si le réglage est activé.
+let autoStartFor = null;
+
 async function renderCapture(id) {
   const seq = await db.getSequence(id);
   if (!seq) { location.hash = '#/'; return null; }
+  const startAuto = autoStartFor === id && settings.autoOnNewSequence;
+  autoStartFor = null;
   const existing = await db.photosOf(id);
 
   app.innerHTML = `
@@ -706,7 +713,11 @@ async function renderCapture(id) {
   compass.start();
   keepAwake(true);
   camera.start()
-    .then(() => { if (!closed) $('.res').textContent = camera.resolution; })
+    .then(() => {
+      if (closed) return;
+      $('.res').textContent = camera.resolution;
+      if (startAuto) setAuto(true); // une fois la caméra prête
+    })
     .catch((e) => setMessage(`Caméra indisponible : ${e.message}`));
 
   return () => {
@@ -1025,6 +1036,8 @@ async function renderSettings() {
       </section>
       <section>
         <h2>Mode auto</h2>
+        <label class="check"><input id="autoOnNewSequence" type="checkbox" ${settings.autoOnNewSequence ? 'checked' : ''}>Activer le mode auto à la création d’une séquence</label>
+        <p class="hint">« Nouvelle séquence » ouvre la caméra avec le mode auto déjà en marche : il suffit de marcher. « Reprendre » une séquence ne le relance pas.</p>
         <label>Intervalle (s)<input id="interval" type="number" min="0.5" step="0.5" value="${settings.interval}"></label>
         <label>Distance minimale (m)<input id="minDistance" type="number" min="0" step="1" value="${settings.minDistance}"></label>
         <label>Précision GPS maximale (m)<input id="maxAccuracy" type="number" min="1" step="1" value="${settings.maxAccuracy}"></label>
@@ -1057,6 +1070,7 @@ async function renderSettings() {
       if (Number.isFinite(v) && v >= 0) { settings[key] = v; settings.save(); } else e.target.value = settings[key];
     };
   }
+  $('#autoOnNewSequence').onchange = (e) => { settings.autoOnNewSequence = e.target.checked; settings.save(); };
   $('#deleteAfterUpload').onchange = (e) => { settings.deleteAfterUpload = e.target.checked; settings.save(); };
   $('#privateUpload').onchange = (e) => { settings.privateUpload = e.target.checked; settings.save(); };
   $('#resetDemo')?.addEventListener('click', async () => {

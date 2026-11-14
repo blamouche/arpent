@@ -10,6 +10,7 @@ Version web (PWA) d'Arpent : on ouvre une URL sur iPhone ou Android, on capture 
 - Photos stockées sur le téléphone (IndexedDB), l'app s'ouvre hors ligne (service worker).
 - Connexion par « jeton réclamé » sur le site de l'instance, envoi reprenable.
 - **Suivi de l'envoi en direct** : panneau en trois étapes (préparation, envoi des photos, finalisation) avec une icône par état (fait, en cours, en attente, erreur, arrêté), nombre de photos restantes, Mo envoyés, débit et temps restant, bouton **Arrêter**. Sur les vignettes : photos en attente estompées, anneau d'avancement sur la photo en cours, pastille verte une fois envoyée. Dans la liste, chaque séquence affiche son état, « en attente » pendant un *Tout envoyer*. L'écran reste allumé pendant l'envoi.
+- **Mode auto dès la création** (*Réglages → Mode auto*, désactivé par défaut) : « Nouvelle séquence » ouvre la caméra avec le mode auto en marche ; « Reprendre » une séquence reste en manuel.
 - **Suppression après envoi, activée par défaut** (*Réglages → Stockage*, décochable) : une fois la séquence validée par Panoramax, les photos pleine taille sont effacées du téléphone ; vignette, position et carte restent. Le bilan d'envoi indique la place libérée.
 - Une fois une séquence envoyée, son détail affiche un **lien vers la séquence sur Panoramax** (`<instance>/sequence/<id>`), ou un lien par séquence si le serveur l'a découpée.
 - **Envoi privé (test)** dans les réglages : les séquences sont envoyées en visibilité `owner-only`, visibles par vous seul sur Panoramax.
