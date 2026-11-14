@@ -46,13 +46,20 @@ const DEFAULTS = {
   interval: 2,        // secondes
   minDistance: 4,     // mètres
   maxAccuracy: 20,    // mètres
-  deleteAfterUpload: false,
+  deleteAfterUpload: true, // libère la place une fois la séquence validée par Panoramax
   privateUpload: false, // envoi privé (owner-only) pour tester sans publier
 };
 
+// Version 2 : suppression après envoi activée par défaut, y compris sur les appareils
+// qui avaient déjà enregistré leurs réglages (l'option reste décochable).
+const SETTINGS_VERSION = 2;
+const storedSettings = store.get('arpent.settings', {});
+if ((storedSettings.version ?? 1) < 2) storedSettings.deleteAfterUpload = true;
+
 const settings = {
   ...DEFAULTS,
-  ...store.get('arpent.settings', {}),
+  ...storedSettings,
+  version: SETTINGS_VERSION,
   save() {
     const { save, ...values } = this;
     store.set('arpent.settings', values);
@@ -114,7 +121,7 @@ const anyActive = () => [...uploads.values()].some(isActive);
 function newUpload(phase, total = 0) {
   return {
     phase, total, sent: 0, ids: new Set(), sentIds: new Set(), current: null, currentSize: 0, fileFraction: 0,
-    bytesTotal: 0, bytesDone: 0, startedAt: Date.now(), filesStartedAt: 0, endedAt: 0,
+    bytesTotal: 0, bytesDone: 0, freed: 0, startedAt: Date.now(), filesStartedAt: 0, endedAt: 0,
     host: '', private: false, failedPhase: null, error: null, controller: new AbortController(),
   };
 }
@@ -145,6 +152,7 @@ async function sendSequence(id, client, u) {
     showProgress();
     await client.completeUploadSet(seq.uploadSetId);
     await db.putSequence({ ...seq, uploadCompleted: true });
+    await freeSpace(id, u);
     return;
   }
 
@@ -185,9 +193,19 @@ async function sendSequence(id, client, u) {
   showProgress();
   await client.completeUploadSet(seq.uploadSetId);
   await db.putSequence({ ...seq, uploadCompleted: true });
+  await freeSpace(id, u);
+}
 
-  if (settings.deleteAfterUpload && !DEMO) {
-    for (const p of await db.photosOf(id)) if (p.uploaded && !p.fileDeleted) await db.dropJpeg(p);
+/**
+ * Réglage « Supprimer les photos du téléphone après envoi » : une fois la séquence validée,
+ * on efface les JPEG pleine taille des photos envoyées ; vignette, position et cap restent.
+ */
+async function freeSpace(id, u) {
+  if (!settings.deleteAfterUpload) return;
+  for (const p of await db.photosOf(id)) {
+    if (!p.uploaded || p.fileDeleted) continue;
+    u.freed += (await db.getBlobs(p.id))?.jpeg?.size ?? 0;
+    await db.dropJpeg(p);
   }
 }
 
@@ -342,7 +360,9 @@ function paintPanel(el, u) {
     const rate = sentBytes(u) / elapsed;
     if (elapsed > 1.5 && rate > 0) sub += ` · ${mo(rate)}/s · encore ≈ ${duration((u.bytesTotal - sentBytes(u)) / rate)}`;
   } else if (u.phase === 'done' && u.bytesTotal) {
-    sub = `${mo(u.bytesTotal)} envoyés`;
+    sub = `${mo(u.bytesTotal)} envoyés${u.freed ? ` · ${mo(u.freed)} libérés sur le téléphone` : ''}`;
+  } else if (u.phase === 'done' && u.freed) {
+    sub = `${mo(u.freed)} libérés sur le téléphone`;
   } else if (u.phase === 'stopped') {
     sub = 'Les photos déjà envoyées sont conservées : l’envoi repartira de là où il s’est arrêté.';
   }
@@ -1012,6 +1032,7 @@ async function renderSettings() {
       <section>
         <h2>Stockage</h2>
         <label class="check"><input id="deleteAfterUpload" type="checkbox" ${settings.deleteAfterUpload ? 'checked' : ''}>Supprimer les photos du téléphone après envoi</label>
+        <p class="hint">Une fois la séquence envoyée et validée par Panoramax, les photos en pleine taille sont effacées de ce téléphone pour libérer de la place. La vignette, la position et la carte restent ; la photo reste consultable sur Panoramax.</p>
         ${estimate ? `<p class="hint">Utilisé : ${mb(estimate.usage)} sur ${mb(estimate.quota)} disponibles${persisted ? ' · stockage persistant' : ''}.</p>` : ''}
       </section>
       <section>
