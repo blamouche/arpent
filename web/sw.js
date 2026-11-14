@@ -2,7 +2,7 @@
 // Réseau d'abord pour toujours avoir la dernière version, cache en secours.
 // Les appels à l'API Panoramax (autre origine) ne passent pas par ici.
 
-const CACHE = 'arpent-v15';
+const CACHE = 'arpent-v17';
 const ASSETS = [
   './',
   './index.html',
@@ -14,6 +14,7 @@ const ASSETS = [
   './sensors.js',
   './demo-data.js',
   './vendor/maplibre/maplibre-gl.js',
+  './vendor/keep-awake.mp4',
   './vendor/maplibre/maplibre-gl.css',
   './manifest.webmanifest',
   './icons/icon.svg',

@@ -311,21 +311,54 @@ function toBlob(canvas, quality) {
 }
 
 // ---------- Écran allumé ----------
+// API Wake Lock quand elle est disponible ; sinon (anciens iOS, app sur l'écran d'accueil sur
+// certaines versions, refus du navigateur), une petite vidéo noire muette jouée en boucle,
+// invisible, qui empêche aussi la mise en veille. Le verrou est redemandé s'il est perdu.
 
 let wakeLock = null;
 let wantAwake = false;
+let video = null;
+
+function fallbackVideo() {
+  if (!video) {
+    video = document.createElement('video');
+    Object.assign(video, { muted: true, loop: true, playsInline: true, src: 'vendor/keep-awake.mp4' });
+    video.setAttribute('playsinline', '');
+    video.setAttribute('aria-hidden', 'true');
+    video.style.cssText = 'position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;left:0;top:0';
+    document.body.append(video);
+  }
+  return video;
+}
+
+/** État actuel : 'lock' (Wake Lock), 'video' (secours), 'off' (la veille peut couper la capture). */
+export function wakeState() {
+  if (wakeLock && !wakeLock.released) return 'lock';
+  if (video && !video.paused) return 'video';
+  return 'off';
+}
 
 export async function keepAwake(on) {
   wantAwake = on;
-  if (on && !wakeLock && 'wakeLock' in navigator) {
+  if (!on) {
+    await wakeLock?.release().catch(() => {});
+    wakeLock = null;
+    video?.pause();
+    return;
+  }
+  if (document.visibilityState !== 'visible') return; // redemandé au retour (visibilitychange)
+  if (!wakeLock && 'wakeLock' in navigator) {
     try {
       wakeLock = await navigator.wakeLock.request('screen');
-      wakeLock.addEventListener('release', () => { wakeLock = null; });
-    } catch { /* refusé (batterie faible, onglet masqué…) */ }
-  } else if (!on && wakeLock) {
-    await wakeLock.release().catch(() => {});
-    wakeLock = null;
+      wakeLock.addEventListener('release', () => {
+        wakeLock = null;
+        if (wantAwake && document.visibilityState === 'visible') keepAwake(true); // perdu : on le redemande
+      });
+    } catch { wakeLock = null; /* refusé (batterie faible, réglage, version) */ }
   }
+  if (!wantAwake) return keepAwake(false); // désactivé pendant la demande
+  if (wakeLock) video?.pause();
+  else await fallbackVideo().play().catch(() => { /* bloqué sans geste : réessayé au prochain toucher */ });
 }
 
 document.addEventListener('visibilitychange', () => {

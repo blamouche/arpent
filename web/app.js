@@ -4,7 +4,7 @@ import { buildExifSegment, withExif } from './exif.js';
 import * as demoData from './demo-data.js';
 import { Client, NotLoggedIn, SimulatedClient, normalizeInstance, sequencePageURL } from './panoramax.js';
 import {
-  DEMO, LocationService, CompassService, CameraService, distance, keepAwake, pitchLabel, requestCompassPermission, setMode,
+  DEMO, LocationService, CompassService, CameraService, distance, keepAwake, pitchLabel, wakeState, requestCompassPermission, setMode,
 } from './sensors.js';
 
 const app = document.getElementById('app');
@@ -50,6 +50,7 @@ const DEFAULTS = {
   maxPitchUp: 30,     // degrés au-dessus de l'horizon
   maxPitchDown: 30,   // degrés sous l'horizon
   skipTiltedAuto: true, // mode auto : ne pas prendre les photos trop inclinées
+  keepScreenOn: true, // écran toujours allumé pendant la prise de vue
   autoOnNewSequence: false, // démarrer la capture auto dès la création d'une séquence
   deleteAfterUpload: true, // libère la place une fois la séquence validée par Panoramax
   privateUpload: false, // envoi privé (owner-only) pour tester sans publier
@@ -608,9 +609,15 @@ async function renderCapture(id) {
         <span class="aim-text"><b class="aim-heading">Cap —</b><span class="aim-orientation"></span></span>
       </div>
       <div class="bottom">
-        <button class="auto" id="auto">Auto</button>
+        <div class="bottom-left">
+          <button class="auto" id="auto">Auto</button>
+          <span class="status-row">
+            ${settings.keepScreenOn ? `<button class="awake" id="awake" type="button" aria-label="Écran toujours allumé">${ICON_SUN}</button>` : ''}
+            <span class="res"></span>
+          </span>
+        </div>
         <button class="shutter" id="shutter" aria-label="Prendre une photo"></button>
-        <span class="res"></span>
+        <div class="minimap" role="img" aria-label="Carte : position, direction de la caméra et trace en cours"></div>
       </div>
     </div>`;
 
@@ -635,8 +642,24 @@ async function renderCapture(id) {
     return p;
   }
 
+  // Mini-carte : trace en cours (positions GPS assez précises), photos prises, position et direction.
+  const trail = existing.map((p) => [p.longitude, p.latitude]);
+  const shots = existing.map((p) => [p.longitude, p.latitude]);
+  let mini = null;
+  const updateMini = () => mini?.update({
+    position: location_.position, heading: compass.best(location_.position)?.value ?? null, trail, shots,
+  });
+  liveMap($('.minimap'))
+    .then((m) => { if (closed) m.remove(); else { mini = m; updateMini(); } })
+    .catch(() => $('.minimap')?.remove());
+
   location_.onchange = () => {
     const p = location_.position;
+    if (p && p.accuracy <= settings.maxAccuracy) {
+      const lastPoint = trail.at(-1);
+      if (!lastPoint || distance({ longitude: lastPoint[0], latitude: lastPoint[1] }, p) >= 2) trail.push([p.longitude, p.latitude]);
+    }
+    updateMini();
     const el = $('.gps');
     if (!el) return;
     if (location_.error) { el.className = 'gps none'; el.textContent = 'GPS refusé'; setMessage(location_.error); return; }
@@ -666,6 +689,8 @@ async function renderCapture(id) {
         capturedAt: date.getTime(), uploaded: false, fileDeleted: false,
       }, file, thumb);
       lastShot = pos;
+      shots.push([pos.longitude, pos.latitude]);
+      updateMini();
       count += 1;
       updateCount();
       setMessage(null);
@@ -736,13 +761,26 @@ async function renderCapture(id) {
       ? `⚠ ${TILT_TEXT[tilt]} : ${Math.round(Math.abs(pitch))}°`
       : [compass.orientationLabel, pitch != null ? pitchLabel(pitch) : null, h?.source === 'gps' ? 'selon la marche' : null]
         .filter(Boolean).join(' · ');
+    updateMini(); // direction de la caméra sur la mini-carte
+    const awake = $('#awake');
+    if (awake) {
+      const state = wakeState();
+      awake.classList.toggle('off', state === 'off');
+      awake.setAttribute('aria-label', state === 'off' ? 'Écran : mise en veille possible' : 'Écran toujours allumé');
+    }
   };
   updateAim();
   const aimTimer = setInterval(updateAim, 250);
 
   location_.start();
   compass.start();
-  keepAwake(true);
+  if (settings.keepScreenOn) keepAwake(true);
+  $('#awake')?.addEventListener('click', () => {
+    keepAwake(true); // un toucher débloque la vidéo de secours si besoin
+    toast(wakeState() === 'off'
+      ? 'Ce navigateur refuse de garder l’écran allumé : réglez la mise en veille automatique du téléphone sur « Jamais » pendant la prise de vue.'
+      : 'Écran toujours allumé pendant la prise de vue (réglable dans les réglages).');
+  });
   camera.start()
     .then(() => {
       if (closed) return;
@@ -758,6 +796,7 @@ async function renderCapture(id) {
     camera.stop();
     location_.stop();
     compass.stop();
+    mini?.remove();
     keepAwake(anyActive());
   };
 }
@@ -888,6 +927,89 @@ async function trackMap(container, photos, onPick) {
     map.on('mouseleave', 'photos', () => { map.getCanvas().style.cursor = ''; tip.remove(); });
   });
   return map;
+}
+
+/**
+ * Mini-carte de la vue caméra (non interactive, nord en haut) : suit la position, avec un
+ * cône dans la direction de la caméra, la trace en cours et un point par photo prise.
+ */
+async function liveMap(container) {
+  const maplibregl = await loadMapLibre();
+  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+  const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+  const map = new maplibregl.Map({
+    container,
+    style: `https://tiles.openfreemap.org/styles/${dark ? 'dark' : 'positron'}`,
+    center: [2.35, 48.85],
+    zoom: 16.5,
+    interactive: false,
+    attributionControl: false,
+    fadeDuration: 0,
+    maxTileCacheSize: 60, // mémoire limitée sur iPhone, la caméra tourne en même temps
+  });
+  // Réseau lent ou absent : la case affiche « Carte… » jusqu'au chargement du style.
+  await new Promise((resolve) => map.once('load', resolve));
+  // Attribution ajoutée une fois la carte prête, directement repliée (bouton ⓘ).
+  const attribution = new maplibregl.AttributionControl({ compact: true });
+  map.addControl(attribution, 'bottom-right');
+  attribution._container?.classList.remove('maplibregl-compact-show');
+
+  const ME = '#1a73e8';
+  const empty = { type: 'FeatureCollection', features: [] };
+  map.addImage('me-cone', viewConeImage(ME), { pixelRatio: 2 });
+  map.addSource('trail', { type: 'geojson', data: empty });
+  map.addSource('shots', { type: 'geojson', data: empty });
+  map.addSource('me', { type: 'geojson', data: empty });
+  map.addLayer({
+    id: 'trail', type: 'line', source: 'trail',
+    layout: { 'line-join': 'round', 'line-cap': 'round' },
+    paint: { 'line-color': accent, 'line-width': 3, 'line-opacity': 0.85 },
+  });
+  map.addLayer({
+    id: 'shots', type: 'circle', source: 'shots',
+    paint: { 'circle-radius': 3, 'circle-color': accent, 'circle-stroke-color': '#fff', 'circle-stroke-width': 1 },
+  });
+  map.addLayer({
+    id: 'me-cone', type: 'symbol', source: 'me', filter: ['has', 'heading'],
+    layout: {
+      'icon-image': 'me-cone', 'icon-rotate': ['get', 'heading'], 'icon-rotation-alignment': 'map',
+      'icon-allow-overlap': true, 'icon-ignore-placement': true,
+    },
+  });
+  map.addLayer({
+    id: 'me', type: 'circle', source: 'me',
+    paint: { 'circle-radius': 6, 'circle-color': ME, 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 },
+  });
+
+  // Mises à jour fréquentes (4 par seconde) : on ne pousse que ce qui a changé.
+  let seen = { trail: -1, shots: -1, at: null, heading: null };
+  return {
+    remove: () => map.remove(),
+    update({ position, heading, trail, shots }) {
+      if (trail.length !== seen.trail) {
+        seen.trail = trail.length;
+        map.getSource('trail').setData(trail.length > 1
+          ? { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: trail } } : empty);
+      }
+      if (shots.length !== seen.shots) {
+        seen.shots = shots.length;
+        map.getSource('shots').setData({ type: 'MultiPoint', coordinates: shots });
+      }
+      if (!position) return;
+      const moved = position.timestamp !== seen.at;
+      const turned = heading != null && (seen.heading == null || Math.abs(heading - seen.heading) > 1);
+      if (!moved && !turned && (heading == null) === (seen.heading == null)) return;
+      const center = [position.longitude, position.latitude];
+      map.getSource('me').setData({
+        type: 'Feature', properties: heading != null ? { heading } : {}, geometry: { type: 'Point', coordinates: center },
+      });
+      if (moved) {
+        if (seen.at == null) map.jumpTo({ center, zoom: 17 });
+        else map.easeTo({ center, duration: 500 });
+      }
+      seen = { ...seen, at: position.timestamp, heading };
+    },
+  };
 }
 
 async function renderDetail(id) {
@@ -1082,6 +1204,11 @@ async function renderSettings() {
         <p class="hint">Les séquences envoyées ne sont visibles que par vous sur Panoramax : pratique pour tester sans rien publier. Supprimez-les ensuite depuis votre compte sur le site de l’instance.</p>
       </section>
       <section>
+        <h2>Écran</h2>
+        <label class="check"><input id="keepScreenOn" type="checkbox" ${settings.keepScreenOn ? 'checked' : ''}>Écran toujours allumé pendant la prise de vue</label>
+        <p class="hint">Empêche la mise en veille tant que la caméra est ouverte, pour que le mode auto continue. Le témoin ☀ en haut de l’écran de capture devient orange si le téléphone le refuse. Verrouiller le téléphone ou changer d’app arrête toujours la capture.</p>
+      </section>
+      <section>
         <h2>Mode auto</h2>
         <label class="check"><input id="autoOnNewSequence" type="checkbox" ${settings.autoOnNewSequence ? 'checked' : ''}>Activer le mode auto à la création d’une séquence</label>
         <p class="hint">« Nouvelle séquence » ouvre la caméra avec le mode auto déjà en marche : il suffit de marcher. « Reprendre » une séquence ne le relance pas.</p>
@@ -1128,6 +1255,7 @@ async function renderSettings() {
   }
   $('#skipTiltedAuto').onchange = (e) => { settings.skipTiltedAuto = e.target.checked; settings.save(); };
   $('#tiltWarning').onchange = (e) => { settings.tiltWarning = e.target.checked; settings.save(); };
+  $('#keepScreenOn').onchange = (e) => { settings.keepScreenOn = e.target.checked; settings.save(); };
   $('#autoOnNewSequence').onchange = (e) => { settings.autoOnNewSequence = e.target.checked; settings.save(); };
   $('#deleteAfterUpload').onchange = (e) => { settings.deleteAfterUpload = e.target.checked; settings.save(); };
   $('#privateUpload').onchange = (e) => { settings.privateUpload = e.target.checked; settings.save(); };
@@ -1153,6 +1281,7 @@ function modeBadge() {
     : '<span class="mode-badge live" role="status" aria-label="Mode live"><span class="rec" aria-hidden="true"></span>Live</span>';
 }
 
+const ICON_SUN = '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4" fill="currentColor"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8"/></g></svg>';
 const ICON_GEAR = '<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-1.7-1L15 3.4h-4L10.7 6a7 7 0 0 0-1.7 1l-2.4-1-2 3.4L6.6 11a7.6 7.6 0 0 0 0 2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 1.7 1l.3 2.6h4l.3-2.6a7 7 0 0 0 1.7-1l2.4 1 2-3.4zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg>';
 
 // ---------- Démarrage ----------
