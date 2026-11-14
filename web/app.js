@@ -330,6 +330,14 @@ async function renderCapture(id) {
         <button class="pill" id="close">Terminer</button>
       </div>
       <p class="msg" hidden></p>
+      <div class="aim" aria-live="off">
+        <svg class="dial" viewBox="-22 -22 44 44" aria-hidden="true">
+          <circle r="20" />
+          <text y="-12.5">N</text>
+          <path class="needle" d="M0,-15 L5.5,5 L0,1.5 L-5.5,5 Z" />
+        </svg>
+        <span class="aim-text"><b class="aim-heading">Cap —</b><span class="aim-orientation"></span></span>
+      </div>
       <div class="bottom">
         <button class="auto" id="auto">Auto</button>
         <button class="shutter" id="shutter" aria-label="Prendre une photo"></button>
@@ -429,6 +437,23 @@ async function renderCapture(id) {
   };
   $('#close').onclick = () => { location.hash = `#/seq/${id}`; };
 
+  // Indicateur de prise : direction de la caméra arrière (aiguille, cap, point cardinal)
+  // et orientation physique du téléphone. C'est la valeur enregistrée dans la photo.
+  const CARDINALS = ['N', 'NE', 'E', 'SE', 'S', 'SO', 'O', 'NO'];
+  const updateAim = () => {
+    const h = compass.best(location_.position);
+    const aim = $('.aim');
+    if (!aim) return;
+    aim.classList.toggle('unknown', !h);
+    if (h) $('.needle').setAttribute('transform', `rotate(${h.value.toFixed(1)})`);
+    $('.aim-heading').textContent = h
+      ? `Cap ${Math.round(h.value)}° ${CARDINALS[Math.round(h.value / 45) % 8]}`
+      : 'Cap inconnu';
+    $('.aim-orientation').textContent = `${compass.orientationLabel}${h?.source === 'gps' ? ' · selon la marche' : ''}`;
+  };
+  updateAim();
+  const aimTimer = setInterval(updateAim, 250);
+
   location_.start();
   compass.start();
   keepAwake(true);
@@ -439,6 +464,7 @@ async function renderCapture(id) {
   return () => {
     closed = true;
     clearInterval(timer);
+    clearInterval(aimTimer);
     camera.stop();
     location_.stop();
     compass.stop();

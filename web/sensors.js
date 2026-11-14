@@ -109,7 +109,7 @@ export function requestCompassPermission() {
   return Promise.resolve('granted');
 }
 
-/** Cap de la caméra arrière (axe -Z de l'appareil) à partir des angles absolus (W3C). */
+/** Cap de la caméra arrière (axe -Z de l'appareil) à partir des angles absolus (W3C, Android). */
 function headingFromEuler(alpha, beta, gamma) {
   const r = Math.PI / 180;
   const [a, b, g] = [alpha * r, beta * r, gamma * r];
@@ -118,12 +118,46 @@ function headingFromEuler(alpha, beta, gamma) {
   return ((Math.atan2(east, north) / r) + 360) % 360;
 }
 
+/**
+ * Orientation physique du téléphone d'après la gravité (beta, gamma), indépendante du
+ * verrouillage de rotation de l'écran. « landscape-left » : haut du téléphone à gauche.
+ */
+export function physicalOrientation(beta, gamma) {
+  const r = Math.PI / 180, b = beta * r, g = gamma * r;
+  // Direction « vers le haut » exprimée dans le repère de l'appareil.
+  const x = -Math.cos(b) * Math.sin(g), y = Math.sin(b), z = Math.cos(b) * Math.cos(g);
+  const [ax, ay, az] = [Math.abs(x), Math.abs(y), Math.abs(z)];
+  if (az > ax && az > ay) return 'flat';
+  if (ax > ay) return x > 0 ? 'landscape-left' : 'landscape-right';
+  return y > 0 ? 'portrait' : 'portrait-inverse';
+}
+
+/**
+ * iOS : webkitCompassHeading donne la direction du haut de l'appareil. Téléphone debout en
+ * portrait, iOS la ramène vers le dos ; en paysage, le haut pointe sur le côté, à ±90° de la
+ * caméra. On corrige pour obtenir la direction du dos (caméra arrière).
+ */
+export function cameraHeadingFromIOS(compassHeading, orientation) {
+  const fix = orientation === 'landscape-left' ? 90 : orientation === 'landscape-right' ? -90 : 0;
+  return (compassHeading + fix + 360) % 360;
+}
+
+const ORIENTATION_LABELS = {
+  portrait: 'portrait',
+  'portrait-inverse': 'portrait inversé',
+  'landscape-left': 'paysage',
+  'landscape-right': 'paysage',
+  flat: 'à plat',
+};
+
 export class CompassService {
   heading = null;
+  orientation = null; // portrait, landscape-left, landscape-right, portrait-inverse, flat
   #at = 0;
   #handler = (e) => {
+    if (e.beta != null && e.gamma != null) this.orientation = physicalOrientation(e.beta, e.gamma);
     if (typeof e.webkitCompassHeading === 'number' && e.webkitCompassHeading >= 0) {
-      this.heading = e.webkitCompassHeading; // iOS
+      this.heading = cameraHeadingFromIOS(e.webkitCompassHeading, this.orientation); // iOS
     } else if (e.absolute && e.alpha != null && e.beta != null && e.gamma != null) {
       this.heading = headingFromEuler(e.alpha, e.beta, e.gamma); // Android
     } else {
@@ -142,11 +176,17 @@ export class CompassService {
     window.removeEventListener('deviceorientation', this.#handler);
   }
 
-  /** Cap boussole récent, sinon direction du déplacement, sinon null. */
+  /** Cap boussole récent (dos du téléphone), sinon direction du déplacement, sinon null. */
   best(position) {
-    if (this.heading != null && Date.now() - this.#at < 2000) return { value: this.heading, ref: 'M' };
-    if (position?.course != null && position.speed > 0.5) return { value: position.course, ref: 'T' };
+    if (this.heading != null && Date.now() - this.#at < 2000) return { value: this.heading, ref: 'M', source: 'compass' };
+    if (position?.course != null && position.speed > 0.5) return { value: position.course, ref: 'T', source: 'gps' };
     return null;
+  }
+
+  /** Libellé de l'orientation de prise : capteurs si disponibles, sinon forme de l'écran. */
+  get orientationLabel() {
+    if (this.orientation) return ORIENTATION_LABELS[this.orientation];
+    return matchMedia('(orientation: landscape)').matches ? 'paysage' : 'portrait';
   }
 }
 
