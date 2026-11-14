@@ -597,7 +597,7 @@ async function renderCapture(id) {
         ${modeBadge()}
         <span class="gps none">GPS…</span>
         <span class="count"></span>
-        <button class="pill" id="close">Terminer</button>
+        <button class="end" id="close">Terminer</button>
       </div>
       <p class="msg" hidden></p>
       <div class="aim" aria-live="off">
@@ -617,7 +617,7 @@ async function renderCapture(id) {
           </span>
         </div>
         <button class="shutter" id="shutter" aria-label="Prendre une photo"></button>
-        <div class="minimap" role="img" aria-label="Carte : position, direction de la caméra et trace en cours"></div>
+        <div class="minimap" role="button" tabindex="0" aria-expanded="false" aria-label="Carte : position, direction de la caméra et trace en cours. Toucher pour agrandir."></div>
       </div>
     </div>`;
 
@@ -633,7 +633,11 @@ async function renderCapture(id) {
   let lastShot = last ? { latitude: last.latitude, longitude: last.longitude } : null;
 
   const setMessage = (m) => { $('.msg').textContent = m ?? ''; $('.msg').hidden = !m; };
-  const updateCount = () => { $('.count').textContent = `${count} photo${count > 1 ? 's' : ''}`; };
+  // Compteur compact (icône + nombre) pour laisser la place au bouton Terminer.
+  const updateCount = () => {
+    $('.count').innerHTML = `${ICON_CAMERA}<span>${count}</span>`;
+    $('.count').setAttribute('aria-label', `${count} photo${count > 1 ? 's' : ''}`);
+  };
   updateCount();
 
   function usablePosition() {
@@ -649,7 +653,19 @@ async function renderCapture(id) {
   const updateMini = () => mini?.update({
     position: location_.position, heading: compass.best(location_.position)?.value ?? null, trail, shots,
   });
-  liveMap($('.minimap'))
+  // Toucher la mini-carte l'agrandit ; un second toucher la réduit.
+  const miniEl = $('.minimap');
+  const toggleMini = (e) => {
+    if (e.target.closest('.maplibregl-ctrl')) return; // bouton d'attribution ⓘ
+    if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault();
+    const big = miniEl.classList.toggle('big');
+    miniEl.setAttribute('aria-expanded', big);
+    miniEl.setAttribute('aria-label', `Carte : position, direction de la caméra et trace en cours. Toucher pour ${big ? 'réduire' : 'agrandir'}.`);
+  };
+  miniEl.addEventListener('click', toggleMini);
+  miniEl.addEventListener('keydown', toggleMini);
+  liveMap(miniEl)
     .then((m) => { if (closed) m.remove(); else { mini = m; updateMini(); } })
     .catch(() => $('.minimap')?.remove());
 
@@ -981,10 +997,18 @@ async function liveMap(container) {
     paint: { 'circle-radius': 6, 'circle-color': ME, 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 },
   });
 
+  // Agrandie ou réduite : la carte suit la taille de sa case et reste centrée sur la position.
+  const resizer = new ResizeObserver(() => {
+    const center = map.getCenter();
+    map.resize();
+    map.jumpTo({ center });
+  });
+  resizer.observe(container);
+
   // Mises à jour fréquentes (4 par seconde) : on ne pousse que ce qui a changé.
   let seen = { trail: -1, shots: -1, at: null, heading: null };
   return {
-    remove: () => map.remove(),
+    remove: () => { resizer.disconnect(); map.remove(); },
     update({ position, heading, trail, shots }) {
       if (trail.length !== seen.trail) {
         seen.trail = trail.length;
@@ -1281,6 +1305,7 @@ function modeBadge() {
     : '<span class="mode-badge live" role="status" aria-label="Mode live"><span class="rec" aria-hidden="true"></span>Live</span>';
 }
 
+const ICON_CAMERA = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M9 4h6l1.5 2H20a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3.5zm3 4.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9zm0 2a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5z"/></svg>';
 const ICON_SUN = '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4" fill="currentColor"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8"/></g></svg>';
 const ICON_GEAR = '<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-1.7-1L15 3.4h-4L10.7 6a7 7 0 0 0-1.7 1l-2.4-1-2 3.4L6.6 11a7.6 7.6 0 0 0 0 2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 1.7 1l.3 2.6h4l.3-2.6a7 7 0 0 0 1.7-1l2.4 1 2-3.4zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg>';
 
