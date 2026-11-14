@@ -47,8 +47,8 @@ const DEFAULTS = {
   minDistance: 4,     // mètres
   maxAccuracy: 20,    // mètres
   tiltWarning: true,  // signaler les photos trop inclinées (pieds, ciel)
-  maxPitchUp: 30,     // degrés au-dessus de l'horizon
-  maxPitchDown: 30,   // degrés sous l'horizon
+  maxPitchUp: 10,     // degrés au-dessus de l'horizon
+  maxPitchDown: 10,   // degrés sous l'horizon
   skipTiltedAuto: true, // mode auto : ne pas prendre les photos trop inclinées
   keepScreenOn: true, // écran toujours allumé pendant la prise de vue
   autoOnNewSequence: false, // démarrer la capture auto dès la création d'une séquence
@@ -58,9 +58,13 @@ const DEFAULTS = {
 
 // Version 2 : suppression après envoi activée par défaut, y compris sur les appareils
 // qui avaient déjà enregistré leurs réglages (l'option reste décochable).
-const SETTINGS_VERSION = 2;
+// Version 3 : seuils d'inclinaison ramenés de 30° à 10° (sauf s'ils avaient été modifiés).
+const SETTINGS_VERSION = 3;
 const storedSettings = store.get('arpent.settings', {});
 if ((storedSettings.version ?? 1) < 2) storedSettings.deleteAfterUpload = true;
+if ((storedSettings.version ?? 1) < 3) {
+  for (const key of ['maxPitchUp', 'maxPitchDown']) if (storedSettings[key] === 30) delete storedSettings[key];
+}
 
 const settings = {
   ...DEFAULTS,
