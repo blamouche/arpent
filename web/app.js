@@ -49,6 +49,7 @@ const DEFAULTS = {
   tiltWarning: true,  // signaler les photos trop inclinées (pieds, ciel)
   maxPitchUp: 30,     // degrés au-dessus de l'horizon
   maxPitchDown: 30,   // degrés sous l'horizon
+  skipTiltedAuto: true, // mode auto : ne pas prendre les photos trop inclinées
   autoOnNewSequence: false, // démarrer la capture auto dès la création d'une séquence
   deleteAfterUpload: true, // libère la place une fois la séquence validée par Panoramax
   privateUpload: false, // envoi privé (owner-only) pour tester sans publier
@@ -681,11 +682,20 @@ async function renderCapture(id) {
   }
 
   // Règle du mode auto : toutes les N s, photo seulement si on s'est déplacé d'au moins D m.
+  // Réglage : pas de photo auto tant que la caméra regarde les pieds ou le ciel.
+  let tiltPaused = false;
   function tick() {
     if (!isAuto || capturing) return;
     const pos = usablePosition();
     if (!pos) return;
     if (lastShot && distance(lastShot, pos) < settings.minDistance) return; // immobile
+    const tilt = settings.skipTiltedAuto ? tiltOf(compass.pitch) : null;
+    if (tilt) {
+      tiltPaused = true;
+      setMessage(`Mode auto en pause : caméra ${TILT_TEXT[tilt]}. Redressez le téléphone.`);
+      return;
+    }
+    if (tiltPaused) { tiltPaused = false; setMessage(null); }
     take(pos);
   }
 
@@ -1082,9 +1092,10 @@ async function renderSettings() {
       <section>
         <h2>Angle de la caméra</h2>
         <label class="check"><input id="tiltWarning" type="checkbox" ${settings.tiltWarning ? 'checked' : ''}>Signaler les photos trop inclinées</label>
+        <label class="check"><input id="skipTiltedAuto" type="checkbox" ${settings.skipTiltedAuto ? 'checked' : ''}>En mode auto, ne pas prendre les photos trop inclinées</label>
         <label>Vers le ciel, au maximum (°)<input id="maxPitchUp" type="number" min="0" max="90" step="5" value="${settings.maxPitchUp}"></label>
         <label>Vers le sol, au maximum (°)<input id="maxPitchDown" type="number" min="0" max="90" step="5" value="${settings.maxPitchDown}"></label>
-        <p class="hint">0° = caméra vers l’horizon, téléphone tenu droit. Au-delà de ces angles, la photo est marquée ⚠ (photo de pieds ou de ciel) et l’écran de prise de vue prévient en direct. L’angle est mesuré au moment de la prise ; valeurs par défaut : ${DEFAULTS.maxPitchUp}° et ${DEFAULTS.maxPitchDown}°.</p>
+        <p class="hint">0° = caméra vers l’horizon, téléphone tenu droit. Au-delà de ces angles, l’écran de prise de vue prévient en direct ; en mode auto, la photo n’est pas prise (si l’option est cochée), sinon elle est marquée ⚠. Le déclencheur manuel prend toujours la photo. L’angle est mesuré au moment de la prise ; valeurs par défaut : ${DEFAULTS.maxPitchUp}° et ${DEFAULTS.maxPitchDown}°.</p>
       </section>
       <section>
         <h2>Stockage</h2>
@@ -1115,6 +1126,7 @@ async function renderSettings() {
       if (ok) { settings[key] = v; settings.save(); } else e.target.value = settings[key];
     };
   }
+  $('#skipTiltedAuto').onchange = (e) => { settings.skipTiltedAuto = e.target.checked; settings.save(); };
   $('#tiltWarning').onchange = (e) => { settings.tiltWarning = e.target.checked; settings.save(); };
   $('#autoOnNewSequence').onchange = (e) => { settings.autoOnNewSequence = e.target.checked; settings.save(); };
   $('#deleteAfterUpload').onchange = (e) => { settings.deleteAfterUpload = e.target.checked; settings.save(); };
