@@ -2,7 +2,7 @@
 // Réseau d'abord pour toujours avoir la dernière version, cache en secours.
 // Les appels à l'API Panoramax (autre origine) ne passent pas par ici.
 
-const CACHE = 'arpent-v24';
+const CACHE = 'arpent-v25';
 const ASSETS = [
   './',
   './index.html',

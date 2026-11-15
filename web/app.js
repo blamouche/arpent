@@ -775,7 +775,7 @@ async function renderCapture(id) {
     aim.classList.toggle('unknown', !h);
     if (h) $('.needle').setAttribute('transform', `rotate(${h.value.toFixed(1)})`);
     $('.aim-heading').textContent = h
-      ? `Cap ${Math.round(h.value)}° ${CARDINALS[Math.round(h.value / 45) % 8]}`
+      ? `Cap ${Math.round(h.value) % 360}° ${CARDINALS[Math.round(h.value / 45) % 8]}`
       : 'Cap inconnu';
     const pitch = compass.pitch;
     const tilt = tiltOf(pitch);
