@@ -140,15 +140,28 @@ export function physicalOrientation(beta, gamma) {
  * portrait, iOS la ramène vers le dos ; en paysage, le haut pointe sur le côté, à ±90° de la
  * caméra. On corrige pour obtenir la direction du dos (caméra arrière).
  */
-export function cameraHeadingFromIOS(compassHeading, orientation, screenAngle = 0) {
-  const physical = orientation === 'landscape-left' ? 90 : orientation === 'landscape-right' ? -90 : 0;
-  // Si l'écran a tourné avec le téléphone, on suppose qu'iOS a déjà compensé cette rotation.
-  const screen = screenAngle === 90 ? 90 : screenAngle === 270 ? -90 : 0;
-  const fix = orientation === 'landscape-left' || orientation === 'landscape-right' ? physical - screen : 0;
+export function cameraHeadingFromIOS(compassHeading, orientation) {
+  // Mesuré sur iPhone : en paysage, le cap brut reste celui du haut de l'appareil, que l'écran
+  // ait tourné ou non. On ajoute ±90° pour obtenir la direction du dos.
+  const fix = orientation === 'landscape-left' ? 90 : orientation === 'landscape-right' ? -90 : 0;
   return (compassHeading + fix + 360) % 360;
 }
 
-/** Rotation de l'écran (0, 90, 180, 270), 90 : haut de l'interface du côté gauche du téléphone. */
+/**
+ * Le téléphone est-il tenu franchement droit, en portrait ou en paysage (roulis à moins de 10°,
+ * caméra à moins de 30° de l'horizon) ? Seules ces positions donnent un cap brut iOS fiable :
+ * pendant une rotation, il glisse progressivement du dos vers le haut de l'appareil.
+ */
+export function steadyPose(beta, gamma) {
+  const r = Math.PI / 180, b = beta * r, g = gamma * r;
+  const x = -Math.cos(b) * Math.sin(g), y = Math.sin(b), z = Math.cos(b) * Math.cos(g); // verticale
+  if (Math.abs(z) > 0.5) return null;
+  const roll = Math.atan2(x, y) / r; // 0 portrait, +90 haut à gauche, -90 haut à droite
+  if (Math.abs(roll) < 10) return 'portrait';
+  if (Math.abs(roll - 90) < 10) return 'landscape-left';
+  if (Math.abs(roll + 90) < 10) return 'landscape-right';
+  return null;
+}/** Rotation de l'écran (0, 90, 180, 270), 90 : haut de l'interface du côté gauche du téléphone. */
 export function screenAngle() {
   // window.orientation d'abord (iOS, sens connu : 90 = tourné vers la gauche), sinon l'API standard.
   const a = typeof window.orientation === 'number' ? window.orientation : screen.orientation?.angle ?? 0;
@@ -190,11 +203,13 @@ export class CompassService {
   #pitchAt = 0;
   #at = 0;
   // iPhone : cap réel = cap gyroscopique (alpha, beta, gamma) + décalage. Le décalage est mesuré
-  // quand le téléphone est tenu droit en portrait, seule position où le cap brut d'iOS
-  // (webkitCompassHeading) donne sans ambiguïté la direction du dos. Ensuite le cap reste juste
-  // en paysage, que l'écran ait tourné ou non.
+  // quand le téléphone est tenu bien droit, en portrait (cap brut = dos) ou en paysage (cap
+  // brut = haut de l'appareil, ±90°). Entre deux, et pendant les rotations, le gyroscope seul
+  // donne le cap, sans saut.
   #offset = null;
   #offsetAt = 0;
+  #pose = null;
+  #poseSince = 0;
   debug = null; // dernières valeurs brutes, affichées par l'indicateur de prise (diagnostic)
   #demoStart = Date.now();
   #handler = (e) => {
@@ -216,19 +231,24 @@ export class CompassService {
 
   #iosHeading(e) {
     const raw = e.webkitCompassHeading;
-    const gyro = e.alpha != null && e.beta != null && e.gamma != null ? headingFromEuler(e.alpha, e.beta, e.gamma) : null;
-    const upright = this.orientation === 'portrait' && this.#pitch != null && Math.abs(this.#pitch) < 30;
-    if (gyro != null && upright) {
-      const sample = wrap180(raw - gyro);
-      this.#offset = this.#offset == null ? sample : wrap180(this.#offset + 0.15 * wrap180(sample - this.#offset)); // lissé
+    const euler = e.alpha != null && e.beta != null && e.gamma != null;
+    const gyro = euler ? headingFromEuler(e.alpha, e.beta, e.gamma) : null;
+    // Recalage seulement dans une position franche (droit en portrait ou en paysage), tenue
+    // depuis au moins 0,4 s : pendant une rotation, le cap brut d'iOS est faux et fausserait le
+    // décalage (constaté sur iPhone : 30° de dérive en passant de portrait à paysage).
+    const pose = euler ? steadyPose(e.beta, e.gamma) : null;
+    if (pose !== this.#pose) { this.#pose = pose; this.#poseSince = Date.now(); }
+    const steady = pose && Date.now() - this.#poseSince > 400;
+    if (gyro != null && steady) {
+      const sample = wrap180(cameraHeadingFromIOS(raw, pose) - gyro);
+      this.#offset = this.#offset == null ? sample : wrap180(this.#offset + 0.05 * wrap180(sample - this.#offset)); // lissé
       this.#offsetAt = Date.now();
     }
     const calibrated = gyro != null && this.#offset != null && Date.now() - this.#offsetAt < 15 * 60_000;
-    const angle = screenAngle();
-    const heading = calibrated ? (gyro + this.#offset + 360) % 360 : cameraHeadingFromIOS(raw, this.orientation, angle);
+    const heading = calibrated ? (gyro + this.#offset + 360) % 360 : cameraHeadingFromIOS(raw, this.orientation);
     this.debug = {
-      raw, gyro, offset: this.#offset, beta: e.beta, gamma: e.gamma, screen: angle,
-      orientation: this.orientation, method: calibrated ? 'gyro' : 'boussole', heading,
+      raw, gyro, offset: this.#offset, beta: e.beta, gamma: e.gamma, screen: screenAngle(),
+      orientation: this.orientation, method: calibrated ? (steady ? 'gyro, recalé' : 'gyro') : 'boussole', heading,
     };
     return heading;
   }
