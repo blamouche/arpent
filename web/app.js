@@ -613,7 +613,7 @@ async function renderCapture(id) {
           <text y="-12.5">N</text>
           <path class="needle" d="M0,-15 L5.5,5 L0,1.5 L-5.5,5 Z" />
         </svg>
-        <span class="aim-text"><b class="aim-heading">Cap —</b><span class="aim-orientation"></span></span>
+        <span class="aim-text"><b class="aim-heading">Cap —</b><span class="aim-orientation"></span><span class="aim-debug" hidden></span></span>
       </div>
       <div class="bottom">
         <div class="bottom-left">
@@ -784,6 +784,15 @@ async function renderCapture(id) {
       ? `⚠ ${TILT_TEXT[tilt]} : ${Math.round(Math.abs(pitch))}°`
       : [compass.orientationLabel, pitch != null ? pitchLabel(pitch) : null, h?.source === 'gps' ? 'selon la marche' : null]
         .filter(Boolean).join(' · ');
+    // Diagnostic (toucher la pastille) : valeurs brutes des capteurs, pour vérifier le cap.
+    const dbg = $('.aim-debug');
+    if (dbg && !dbg.hidden) {
+      const d = compass.debug, n = (v) => (v == null ? '—' : Math.round(v));
+      dbg.textContent = !d ? 'aucune donnée de boussole'
+        : d.method === 'android'
+          ? `Android · α ${n(d.alpha)} β ${n(d.beta)} γ ${n(d.gamma)} · écran ${d.screen}°`
+          : `iOS ${n(d.raw)}° · gyro ${n(d.gyro)}°${d.offset != null ? ` ${d.offset >= 0 ? '+' : ''}${n(d.offset)}°` : ''} · β ${n(d.beta)} γ ${n(d.gamma)} · écran ${d.screen}° · calcul ${d.method}`;
+    }
     updateMini(); // direction de la caméra sur la mini-carte
     const awake = $('#awake');
     if (awake) {
@@ -794,6 +803,7 @@ async function renderCapture(id) {
   };
   updateAim();
   const aimTimer = setInterval(updateAim, 250);
+  $('.aim').addEventListener('click', () => { const d = $('.aim-debug'); d.hidden = !d.hidden; updateAim(); });
 
   location_.start();
   compass.start();

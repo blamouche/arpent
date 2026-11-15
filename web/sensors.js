@@ -109,8 +109,11 @@ export function requestCompassPermission() {
   return Promise.resolve('granted');
 }
 
-/** Cap de la caméra arrière (axe -Z de l'appareil) à partir des angles absolus (W3C, Android). */
-function headingFromEuler(alpha, beta, gamma) {
+/**
+ * Cap de la caméra arrière (axe -Z de l'appareil) à partir des angles W3C. Absolu sur Android ;
+ * sur iPhone, alpha a une référence arbitraire : le résultat est alors décalé d'une constante.
+ */
+export function headingFromEuler(alpha, beta, gamma) {
   const r = Math.PI / 180;
   const [a, b, g] = [alpha * r, beta * r, gamma * r];
   const east = -Math.cos(a) * Math.sin(g) - Math.sin(a) * Math.sin(b) * Math.cos(g);
@@ -137,10 +140,22 @@ export function physicalOrientation(beta, gamma) {
  * portrait, iOS la ramène vers le dos ; en paysage, le haut pointe sur le côté, à ±90° de la
  * caméra. On corrige pour obtenir la direction du dos (caméra arrière).
  */
-export function cameraHeadingFromIOS(compassHeading, orientation) {
-  const fix = orientation === 'landscape-left' ? 90 : orientation === 'landscape-right' ? -90 : 0;
+export function cameraHeadingFromIOS(compassHeading, orientation, screenAngle = 0) {
+  const physical = orientation === 'landscape-left' ? 90 : orientation === 'landscape-right' ? -90 : 0;
+  // Si l'écran a tourné avec le téléphone, on suppose qu'iOS a déjà compensé cette rotation.
+  const screen = screenAngle === 90 ? 90 : screenAngle === 270 ? -90 : 0;
+  const fix = orientation === 'landscape-left' || orientation === 'landscape-right' ? physical - screen : 0;
   return (compassHeading + fix + 360) % 360;
 }
+
+/** Rotation de l'écran (0, 90, 180, 270), 90 : haut de l'interface du côté gauche du téléphone. */
+export function screenAngle() {
+  // window.orientation d'abord (iOS, sens connu : 90 = tourné vers la gauche), sinon l'API standard.
+  const a = typeof window.orientation === 'number' ? window.orientation : screen.orientation?.angle ?? 0;
+  return ((Math.round(a / 90) * 90) % 360 + 360) % 360;
+}
+
+const wrap180 = (d) => ((d % 360) + 540) % 360 - 180;
 
 /**
  * Inclinaison de la caméra arrière par rapport à l'horizon, en degrés, d'après la gravité :
@@ -174,6 +189,13 @@ export class CompassService {
   #pitch = null;
   #pitchAt = 0;
   #at = 0;
+  // iPhone : cap réel = cap gyroscopique (alpha, beta, gamma) + décalage. Le décalage est mesuré
+  // quand le téléphone est tenu droit en portrait, seule position où le cap brut d'iOS
+  // (webkitCompassHeading) donne sans ambiguïté la direction du dos. Ensuite le cap reste juste
+  // en paysage, que l'écran ait tourné ou non.
+  #offset = null;
+  #offsetAt = 0;
+  debug = null; // dernières valeurs brutes, affichées par l'indicateur de prise (diagnostic)
   #demoStart = Date.now();
   #handler = (e) => {
     if (e.beta != null && e.gamma != null) {
@@ -182,14 +204,34 @@ export class CompassService {
       this.#pitchAt = Date.now();
     }
     if (typeof e.webkitCompassHeading === 'number' && e.webkitCompassHeading >= 0) {
-      this.heading = cameraHeadingFromIOS(e.webkitCompassHeading, this.orientation); // iOS
+      this.heading = this.#iosHeading(e); // iOS
     } else if (e.absolute && e.alpha != null && e.beta != null && e.gamma != null) {
       this.heading = headingFromEuler(e.alpha, e.beta, e.gamma); // Android
+      this.debug = { alpha: e.alpha, beta: e.beta, gamma: e.gamma, screen: screenAngle(), orientation: this.orientation, method: 'android', heading: this.heading };
     } else {
       return;
     }
     this.#at = Date.now();
   };
+
+  #iosHeading(e) {
+    const raw = e.webkitCompassHeading;
+    const gyro = e.alpha != null && e.beta != null && e.gamma != null ? headingFromEuler(e.alpha, e.beta, e.gamma) : null;
+    const upright = this.orientation === 'portrait' && this.#pitch != null && Math.abs(this.#pitch) < 30;
+    if (gyro != null && upright) {
+      const sample = wrap180(raw - gyro);
+      this.#offset = this.#offset == null ? sample : wrap180(this.#offset + 0.15 * wrap180(sample - this.#offset)); // lissé
+      this.#offsetAt = Date.now();
+    }
+    const calibrated = gyro != null && this.#offset != null && Date.now() - this.#offsetAt < 15 * 60_000;
+    const angle = screenAngle();
+    const heading = calibrated ? (gyro + this.#offset + 360) % 360 : cameraHeadingFromIOS(raw, this.orientation, angle);
+    this.debug = {
+      raw, gyro, offset: this.#offset, beta: e.beta, gamma: e.gamma, screen: angle,
+      orientation: this.orientation, method: calibrated ? 'gyro' : 'boussole', heading,
+    };
+    return heading;
+  }
 
   start() {
     window.addEventListener('deviceorientationabsolute', this.#handler);

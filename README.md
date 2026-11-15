@@ -54,7 +54,7 @@ L'app s'ouvre en **mode démo** : position, caméra et envoi sont simulés, rien
   - l'orientation du téléphone (portrait, paysage, à plat) et l'inclinaison de la caméra (« 6° vers le sol »).
 
   C'est la valeur qui est écrite dans la photo.
-- **Cap juste en portrait comme en paysage.** C'est toujours la direction du dos du téléphone, celle de la caméra arrière. Sur iPhone, Safari donne la direction du haut de l'appareil : Arpent la corrige en paysage grâce à la gravité, même avec la rotation verrouillée. Sans boussole, l'app utilise la direction de la marche (« selon la marche »).
+- **Cap juste en portrait comme en paysage.** C'est toujours la direction du dos du téléphone, celle de la caméra arrière. Sur iPhone, le cap brut de Safari n'est fiable que téléphone droit en portrait. Arpent s'en sert pour recaler le gyroscope, qui donne ensuite la direction du dos dans toutes les positions, que l'écran tourne ou non. Toucher la pastille de cap affiche les valeurs brutes des capteurs (diagnostic). Sans boussole, l'app utilise la direction de la marche (« selon la marche »).
 - **Alerte d'inclinaison.** Si la caméra regarde trop vers le sol (photo de pieds) ou vers le ciel, la pastille devient orange : « ⚠ trop vers le ciel : 48° ».
   - En mode auto, la prise se met en pause tant que le téléphone n'est pas redressé (option).
   - Les seuils se règlent (15° par défaut).

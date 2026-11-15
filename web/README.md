@@ -19,7 +19,9 @@ Puis ouvrir <http://localhost:8137/>. Sans build, sans dépendance : il n'y a ri
   - un `404` (upload set supprimé côté serveur) en recrée un, une seule fois.
 - **Cap** :
   - Android : l'événement `deviceorientationabsolute` donne les angles, et l'app calcule directement la direction de l'axe −Z de l'appareil (le dos) ;
-  - iPhone : `webkitCompassHeading` donne la direction du haut de l'appareil. Elle est corrigée de ±90° en paysage d'après l'orientation physique, déduite de la gravité (beta, gamma).
+  - iPhone : `webkitCompassHeading` n'est sans ambiguïté que téléphone droit en portrait (direction du dos). Dans cette position, Arpent mesure le décalage entre ce cap et le cap gyroscopique tiré de `alpha`, `beta`, `gamma` (référence arbitraire sur iOS), puis utilise gyroscope + décalage dans toutes les positions. Le décalage est lissé et remesuré à chaque passage en portrait.
+  - iPhone, avant tout passage en portrait : `webkitCompassHeading` corrigé de ±90° en paysage selon l'orientation physique (gravité), moins la rotation de l'écran (`window.orientation`), au cas où iOS l'aurait déjà compensée.
+  - Diagnostic : toucher la pastille de cap dans la vue caméra affiche les valeurs brutes (cap iOS, cap gyroscopique et décalage, beta, gamma, rotation de l'écran, méthode).
 - **Inclinaison de la caméra** : `asin(−cos β · cos γ)`, en degrés au-dessus de l'horizon. Elle vaut pour le portrait comme pour le paysage et est enregistrée avec chaque photo (`pitch`). Les avertissements sont calculés à l'affichage selon les seuils du moment.
 - **Écran allumé** :
   - l'API Wake Lock en premier, redemandée si le verrou est relâché et au retour au premier plan ;

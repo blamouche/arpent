@@ -403,6 +403,9 @@ progress { width: 100%; height: 6px; accent-color: var(--accent); }
 .capture .aim-text { display: grid; line-height: 1.2; }
 .capture .aim-heading { font-size: 15px; }
 .capture .aim-orientation { font-size: 12px; opacity: .85; }
+.capture .aim { cursor: pointer; }
+.capture .aim-debug { font: 11px/1.3 ui-monospace, monospace; opacity: .9; white-space: normal; max-width: min(300px, 70vw); }
+.capture .aim:has(.aim-debug:not([hidden])) { border-radius: 20px; padding-top: 8px; padding-bottom: 8px; }
 .capture .bottom-left { justify-self: start; display: grid; gap: 6px; justify-items: start; }
 .capture .res { font-size: 11px; opacity: .7; text-shadow: 0 1px 3px #000; padding-left: 4px; }
 
