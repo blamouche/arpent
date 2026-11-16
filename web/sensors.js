@@ -203,9 +203,9 @@ export class CompassService {
   #pitchAt = 0;
   #at = 0;
   // iPhone : cap réel = cap gyroscopique (alpha, beta, gamma) + décalage. Le décalage est mesuré
-  // quand le téléphone est tenu bien droit, en portrait (cap brut = dos) ou en paysage (cap
-  // brut = haut de l'appareil, ±90°). Entre deux, et pendant les rotations, le gyroscope seul
-  // donne le cap, sans saut.
+  // téléphone tenu droit en portrait (cap brut = direction du dos, fiable). Dans les autres
+  // positions, paysage compris, le gyroscope seul donne le cap, sans saut.
+  get calibrated() { return this.#offset != null; }
   #offset = null;
   #offsetAt = 0;
   #pose = null;
@@ -233,18 +233,18 @@ export class CompassService {
     const raw = e.webkitCompassHeading;
     const euler = e.alpha != null && e.beta != null && e.gamma != null;
     const gyro = euler ? headingFromEuler(e.alpha, e.beta, e.gamma) : null;
-    // Recalage seulement dans une position franche (droit en portrait ou en paysage), tenue
-    // depuis au moins 0,4 s : pendant une rotation, le cap brut d'iOS est faux et fausserait le
-    // décalage (constaté sur iPhone : 30° de dérive en passant de portrait à paysage).
+    // Recalage seulement téléphone droit en portrait, tenu depuis au moins 0,4 s. Mesures sur
+    // iPhone : pendant une rotation le cap brut glisse (30° de dérive constatée), et en paysage
+    // il est faussé de 5 à 26° même téléphone immobile. En paysage, le gyroscope seul fait foi.
     const pose = euler ? steadyPose(e.beta, e.gamma) : null;
     if (pose !== this.#pose) { this.#pose = pose; this.#poseSince = Date.now(); }
-    const steady = pose && Date.now() - this.#poseSince > 400;
+    const steady = pose === 'portrait' && Date.now() - this.#poseSince > 400;
     if (gyro != null && steady) {
       const sample = wrap180(cameraHeadingFromIOS(raw, pose) - gyro);
       this.#offset = this.#offset == null ? sample : wrap180(this.#offset + 0.05 * wrap180(sample - this.#offset)); // lissé
       this.#offsetAt = Date.now();
     }
-    const calibrated = gyro != null && this.#offset != null && Date.now() - this.#offsetAt < 15 * 60_000;
+    const calibrated = gyro != null && this.#offset != null;
     const heading = calibrated ? (gyro + this.#offset + 360) % 360 : cameraHeadingFromIOS(raw, this.orientation);
     this.debug = {
       raw, gyro, offset: this.#offset, beta: e.beta, gamma: e.gamma, screen: screenAngle(),

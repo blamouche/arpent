@@ -10,7 +10,7 @@ import {
 const app = document.getElementById('app');
 // Version publiée, à changer avec le nom du cache dans sw.js : affichée dans le diagnostic et
 // les réglages, pour vérifier qu'un téléphone a bien chargé la dernière version.
-const APP_VERSION = 'v26';
+const APP_VERSION = 'v27';
 
 // ---------- Outils ----------
 
@@ -785,7 +785,9 @@ async function renderCapture(id) {
     aim.classList.toggle('warn', !!tilt);
     $('.aim-orientation').textContent = tilt
       ? `⚠ ${TILT_TEXT[tilt]} : ${Math.round(Math.abs(pitch))}°`
-      : [compass.orientationLabel, pitch != null ? pitchLabel(pitch) : null, h?.source === 'gps' ? 'selon la marche' : null]
+      : [compass.orientationLabel, pitch != null ? pitchLabel(pitch) : null, h?.source === 'gps' ? 'selon la marche' : null,
+        // iPhone : tant que la boussole n'a pas été calée en portrait, le cap en paysage est approximatif.
+        compass.debug?.raw != null && !compass.calibrated && compass.orientation !== 'portrait' ? 'calez en portrait' : null]
         .filter(Boolean).join(' · ');
     // Diagnostic (toucher la pastille) : valeurs brutes des capteurs, pour vérifier le cap.
     const dbg = $('.aim-debug');
