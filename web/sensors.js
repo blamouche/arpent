@@ -212,6 +212,15 @@ export class CompassService {
   #poseSince = 0;
   debug = null; // dernières valeurs brutes, affichées par l'indicateur de prise (diagnostic)
   #demoStart = Date.now();
+
+  // Option « caméra dans le sens de la marche » : en marchant droit, la direction GPS est
+  // précise ; l'écart avec la boussole donne une correction ajoutée au cap (tous téléphones).
+  useWalk = false;
+  #walk = 0;          // correction (degrés)
+  #walkCount = 0;     // échantillons retenus
+  #walkAt = 0;
+  #walkTrack = [];    // fenêtre glissante { t, course, heading }
+  get walkCorrection() { return this.useWalk && this.#walkCount ? this.#walk : null; }
   #handler = (e) => {
     if (e.beta != null && e.gamma != null) {
       this.orientation = physicalOrientation(e.beta, e.gamma);
@@ -240,6 +249,7 @@ export class CompassService {
     if (pose !== this.#pose) { this.#pose = pose; this.#poseSince = Date.now(); }
     const steady = pose === 'portrait' && Date.now() - this.#poseSince > 400;
     if (gyro != null && steady) {
+      if (this.#offset == null) this.#resetWalk(); // le cap change de base : la correction est à refaire
       const sample = wrap180(cameraHeadingFromIOS(raw, pose) - gyro);
       this.#offset = this.#offset == null ? sample : wrap180(this.#offset + 0.05 * wrap180(sample - this.#offset)); // lissé
       this.#offsetAt = Date.now();
@@ -263,9 +273,46 @@ export class CompassService {
     window.removeEventListener('deviceorientation', this.#handler);
   }
 
+  #resetWalk() { this.#walk = 0; this.#walkCount = 0; this.#walkTrack = []; }
+
+  /**
+   * À chaque position GPS, si l'option est active : cale le cap sur la direction de marche.
+   * Seulement en marche régulière (≥ 1 m/s, GPS ≤ 15 m) et droite depuis 4 s (direction GPS et
+   * cap stables à 10° près), caméra proche de l'horizon. Un écart de plus de 45° avec la
+   * correction en cours (60° pour la première) signifie que la caméra ne vise pas dans le sens
+   * de la marche (façade, côté) : l'échantillon est ignoré.
+   */
+  walkSample(position) {
+    if (!this.useWalk) return;
+    const now = Date.now();
+    const fresh = this.heading != null && now - this.#at < 2000;
+    const p = position;
+    if (!fresh || !p || p.course == null || !(p.speed >= 1) || p.accuracy > 15) { this.#walkTrack = []; return; }
+    this.#walkTrack.push({ t: now, course: p.course, heading: this.heading });
+    this.#walkTrack = this.#walkTrack.filter((s) => now - s.t <= 6000);
+    const first = this.#walkTrack[0];
+    if (this.#walkTrack.length < 4 || now - first.t < 4000) return;
+    const spread = (key) => Math.max(...this.#walkTrack.map((s) => Math.abs(wrap180(s[key] - first[key]))));
+    if (spread('course') > 10 || spread('heading') > 10) return; // virage, ou téléphone qui bouge
+    const pitch = this.pitch;
+    if (pitch != null && Math.abs(pitch) > 30) return;
+    const sample = wrap180(p.course - this.heading);
+    if (Math.abs(wrap180(sample - this.#walk)) > (this.#walkCount ? 45 : 60)) return;
+    if (now - this.#walkAt < 1000) return;
+    this.#walk = this.#walkCount ? wrap180(this.#walk + 0.15 * wrap180(sample - this.#walk)) : sample;
+    this.#walkCount += 1;
+    this.#walkAt = now;
+  }
+
   /** Cap boussole récent (dos du téléphone), sinon direction du déplacement, sinon null. */
   best(position) {
-    if (this.heading != null && Date.now() - this.#at < 2000) return { value: this.heading, ref: 'M', source: 'compass' };
+    if (this.heading != null && Date.now() - this.#at < 2000) {
+      const walk = this.walkCorrection;
+      // Calé sur le GPS, le cap est rapporté au nord géographique (T), sinon magnétique (M).
+      return walk == null
+        ? { value: this.heading, ref: 'M', source: 'compass' }
+        : { value: (this.heading + walk + 360) % 360, ref: 'T', source: 'compass+walk' };
+    }
     if (position?.course != null && position.speed > 0.5) return { value: position.course, ref: 'T', source: 'gps' };
     return null;
   }

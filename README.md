@@ -54,7 +54,8 @@ L'app s'ouvre en **mode démo** : position, caméra et envoi sont simulés, rien
   - l'orientation du téléphone (portrait, paysage, à plat) et l'inclinaison de la caméra (« 6° vers le sol »).
 
   C'est la valeur qui est écrite dans la photo.
-- **Cap juste en portrait comme en paysage.** C'est toujours la direction du dos du téléphone, celle de la caméra arrière. Sur iPhone, la boussole de Safari n'est fiable que téléphone tenu droit en portrait : Arpent s'en sert pour caler le gyroscope, qui donne ensuite la direction du dos dans toutes les positions, paysage compris. Tant que ce calage n'est pas fait, la pastille indique « calez en portrait ». Toucher la pastille de cap affiche les valeurs brutes des capteurs (diagnostic). Sans boussole, l'app utilise la direction de la marche (« selon la marche »).
+- **Cap juste en portrait comme en paysage.** C'est toujours la direction du dos du téléphone, celle de la caméra arrière. Sur iPhone, la boussole de Safari n'est fiable que téléphone tenu droit en portrait : Arpent s'en sert pour caler le gyroscope, qui donne ensuite la direction du dos dans toutes les positions, paysage compris. Tant que ce calage n'est pas fait, la pastille indique « calez en portrait ».
+- **Calage sur la direction de marche** (option, désactivée par défaut). Si la caméra vise dans le sens de la marche, Arpent compare la boussole à la direction donnée par le GPS en marchant droit et la corrige en continu, sur tous les téléphones. Ça rattrape une boussole faussée (aimant, métal, calibration). Les photos prises sur le côté sont ignorées pour ce calage. Une fois calé, le cap est rapporté au nord géographique. Toucher la pastille de cap affiche les valeurs brutes des capteurs (diagnostic). Sans boussole, l'app utilise la direction de la marche (« selon la marche »).
 - **Alerte d'inclinaison.** Si la caméra regarde trop vers le sol (photo de pieds) ou vers le ciel, la pastille devient orange : « ⚠ trop vers le ciel : 48° ».
   - En mode auto, la prise se met en pause tant que le téléphone n'est pas redressé (option).
   - Les seuils se règlent (15° par défaut).
@@ -150,6 +151,7 @@ En démo, une **séquence d'exemple** est téléchargée au premier lancement de
 | Panoramax | Instance | `https://panoramax.openstreetmap.fr` |
 | | Envoi privé (test) | non |
 | Écran | Écran toujours allumé pendant la prise de vue | oui |
+| Boussole | Caler la boussole sur la direction de marche | non |
 | Mode auto | Activer le mode auto à la création d'une séquence | non |
 | | Intervalle | 2 s |
 | | Distance minimale | 4 m |

@@ -10,7 +10,7 @@ import {
 const app = document.getElementById('app');
 // Version publiée, à changer avec le nom du cache dans sw.js : affichée dans le diagnostic et
 // les réglages, pour vérifier qu'un téléphone a bien chargé la dernière version.
-const APP_VERSION = 'v27';
+const APP_VERSION = 'v28';
 
 // ---------- Outils ----------
 
@@ -54,6 +54,7 @@ const DEFAULTS = {
   maxPitchDown: 15,   // degrés sous l'horizon
   skipTiltedAuto: true, // mode auto : ne pas prendre les photos trop inclinées
   keepScreenOn: true, // écran toujours allumé pendant la prise de vue
+  walkCalibration: false, // caler la boussole sur la direction de marche (caméra dans le sens de la marche)
   autoOnNewSequence: false, // démarrer la capture auto dès la création d'une séquence
   deleteAfterUpload: true, // libère la place une fois la séquence validée par Panoramax
   privateUpload: false, // envoi privé (owner-only) pour tester sans publier
@@ -636,6 +637,7 @@ async function renderCapture(id) {
   const camera = new CameraService(video);
   const location_ = new LocationService();
   const compass = new CompassService();
+  compass.useWalk = settings.walkCalibration;
 
   let count = existing.length;
   let isAuto = false, capturing = false, timer = null, closed = false;
@@ -681,6 +683,7 @@ async function renderCapture(id) {
 
   location_.onchange = () => {
     const p = location_.position;
+    compass.walkSample(p); // sans effet si l'option est désactivée
     if (p && p.accuracy <= settings.maxAccuracy) {
       const lastPoint = trail.at(-1);
       if (!lastPoint || distance({ longitude: lastPoint[0], latitude: lastPoint[1] }, p) >= 2) trail.push([p.longitude, p.latitude]);
@@ -786,17 +789,20 @@ async function renderCapture(id) {
     $('.aim-orientation').textContent = tilt
       ? `⚠ ${TILT_TEXT[tilt]} : ${Math.round(Math.abs(pitch))}°`
       : [compass.orientationLabel, pitch != null ? pitchLabel(pitch) : null, h?.source === 'gps' ? 'selon la marche' : null,
+        h?.source === 'compass+walk' ? 'calé sur la marche' : null,
         // iPhone : tant que la boussole n'a pas été calée en portrait, le cap en paysage est approximatif.
-        compass.debug?.raw != null && !compass.calibrated && compass.orientation !== 'portrait' ? 'calez en portrait' : null]
+        compass.debug?.raw != null && !compass.calibrated && compass.walkCorrection == null && compass.orientation !== 'portrait' ? 'calez en portrait' : null]
         .filter(Boolean).join(' · ');
     // Diagnostic (toucher la pastille) : valeurs brutes des capteurs, pour vérifier le cap.
     const dbg = $('.aim-debug');
     if (dbg && !dbg.hidden) {
       const d = compass.debug, n = (v) => (v == null ? '—' : Math.round(v));
+      const w = compass.walkCorrection;
+      const walk = settings.walkCalibration ? ` · marche ${w == null ? 'en attente' : `${w >= 0 ? '+' : ''}${n(w)}°`}` : '';
       dbg.textContent = !d ? 'aucune donnée de boussole'
         : d.method === 'android'
-          ? `${APP_VERSION} · Android · α ${n(d.alpha)} β ${n(d.beta)} γ ${n(d.gamma)} · écran ${d.screen}°`
-          : `${APP_VERSION} · iOS ${n(d.raw)}° · gyro ${n(d.gyro)}°${d.offset != null ? ` ${d.offset >= 0 ? '+' : ''}${n(d.offset)}°` : ''} · β ${n(d.beta)} γ ${n(d.gamma)} · écran ${d.screen}° · calcul ${d.method}`;
+          ? `${APP_VERSION} · Android · α ${n(d.alpha)} β ${n(d.beta)} γ ${n(d.gamma)} · écran ${d.screen}°${walk}`
+          : `${APP_VERSION} · iOS ${n(d.raw)}° · gyro ${n(d.gyro)}°${d.offset != null ? ` ${d.offset >= 0 ? '+' : ''}${n(d.offset)}°` : ''} · β ${n(d.beta)} γ ${n(d.gamma)} · écran ${d.screen}° · calcul ${d.method}${walk}`;
     }
     updateMini(); // direction de la caméra sur la mini-carte
     const awake = $('#awake');
@@ -1381,6 +1387,11 @@ async function renderSettings() {
         <p class="hint">Empêche la mise en veille tant que la caméra est ouverte, pour que le mode auto continue. Le témoin ☀ en bas à gauche de l’écran de capture devient orange si le téléphone le refuse. Verrouiller le téléphone ou changer d’app arrête toujours la capture.</p>
       </section>
       <section>
+        <h2>Boussole</h2>
+        <label class="check"><input id="walkCalibration" type="checkbox" ${settings.walkCalibration ? 'checked' : ''}>Caler la boussole sur la direction de marche</label>
+        <p class="hint">À activer si la caméra vise dans le sens de la marche. En marchant droit, la direction donnée par le GPS est précise : Arpent corrige la boussole avec, ce qui rattrape une boussole faussée (aimant, métal, calibration) sur tous les téléphones. Les photos prises sur le côté (façades) sont ignorées pour ce calage ; ne l’activez pas si vous photographiez surtout sur le côté. Le cap enregistré est alors rapporté au nord géographique.</p>
+      </section>
+      <section>
         <h2>Mode auto</h2>
         <label class="check"><input id="autoOnNewSequence" type="checkbox" ${settings.autoOnNewSequence ? 'checked' : ''}>Activer le mode auto à la création d’une séquence</label>
         <p class="hint">« Nouvelle séquence » ouvre la caméra avec le mode auto déjà en marche : il suffit de marcher. « Reprendre » une séquence ne le relance pas.</p>
@@ -1427,6 +1438,7 @@ async function renderSettings() {
   }
   $('#skipTiltedAuto').onchange = (e) => { settings.skipTiltedAuto = e.target.checked; settings.save(); };
   $('#tiltWarning').onchange = (e) => { settings.tiltWarning = e.target.checked; settings.save(); };
+  $('#walkCalibration').onchange = (e) => { settings.walkCalibration = e.target.checked; settings.save(); };
   $('#keepScreenOn').onchange = (e) => { settings.keepScreenOn = e.target.checked; settings.save(); };
   $('#autoOnNewSequence').onchange = (e) => { settings.autoOnNewSequence = e.target.checked; settings.save(); };
   $('#deleteAfterUpload').onchange = (e) => { settings.deleteAfterUpload = e.target.checked; settings.save(); };
