@@ -1,7 +1,7 @@
 # Arpent
 
 > [!WARNING]
-> **Travail en cours (WIP).** Arpent est un prototype : fonctionnalités, réglages et format des données peuvent encore changer, et l'envoi réel sur Panoramax n'a pas encore été validé. Voir [État du projet](#état-du-projet).
+> **Travail en cours (WIP).** Fonctionnalités, réglages et format des données peuvent encore changer. Voir [État du projet](#état-du-projet).
 
 **Capturer des séquences de photos géolocalisées depuis un téléphone et les publier sur [Panoramax](https://panoramax.fr)**, la géo-photothèque libre (photos de rue, comme Street View, mais en commun).
 
@@ -226,7 +226,7 @@ Documentation : [PRD](docs/PRD.md), [architecture](docs/ARCHITECTURE.md), [notes
 
 ## État du projet
 
-**Prototype.** Ce qui a été vérifié :
+Ce qui a été vérifié :
 
 - **Mode démo** : capture auto (une photo toutes les ~4 s en marche, aucune à l'arrêt), cartes, alertes d'inclinaison, envoi simulé.
 - **EXIF** relu avec Pillow : position, altitude, précision, cap, vitesse, dates avec millisecondes.
@@ -237,10 +237,9 @@ Documentation : [PRD](docs/PRD.md), [architecture](docs/ARCHITECTURE.md), [notes
   - *Tout envoyer* avec une file d'attente.
 - **CORS** de `panoramax.openstreetmap.fr`.
 - **Sur iPhone**, avec **Safari** et **Chrome**.
+- **Envoi réel** sur une instance Panoramax.
 
-**Pas encore testé** :
-- sur un téléphone Android ;
-- un envoi réel sur une instance Panoramax.
+**Pas encore testé** : sur un téléphone Android.
 
 **Limites connues**
 
@@ -254,7 +253,7 @@ Documentation : [PRD](docs/PRD.md), [architecture](docs/ARCHITECTURE.md), [notes
 ## Crédits et licence
 
 - Cartes : [MapLibre GL JS](https://maplibre.org) (BSD-3), fonds [OpenFreeMap](https://openfreemap.org) © [OpenMapTiles](https://openmaptiles.org), données © [contributeurs OpenStreetMap](https://www.openstreetmap.org/copyright).
-- Photos de la démo : JLZIMMERMANN sur [Panoramax](https://panoramax.openstreetmap.fr), CC BY-SA 4.0. Elles sont téléchargées à la demande et ne sont pas copiées dans ce dépôt.
+- Photos de la démo : JLZIMMERMANN sur [Panoramax](https://panoramax.openstreetmap.fr), CC BY-SA 4.0. Elles sont téléchargées à la demande et ne sont pas copiées dans ce dépôt. Les captures d'écran de `docs/screenshots/` qui les montrent restent sous CC BY-SA 4.0.
 - Arpent s'inspire de [Baba](https://wiki.openstreetmap.org/wiki/Baba) (Android, AGPL-3.0), sans en reprendre le code.
 
-Licence d'Arpent : à définir.
+Arpent est distribué sous **licence MIT** : voir [LICENSE](LICENSE). MapLibre GL JS, embarqué dans `web/vendor/maplibre/`, garde sa propre licence BSD-3.

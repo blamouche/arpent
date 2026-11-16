@@ -4,7 +4,7 @@
 
 | | |
 |---|---|
-| Statut | Prototype — MVP fonctionnel en mode démo, à valider sur téléphone |
+| Statut | MVP fonctionnel, testé sur iPhone (Safari, Chrome) avec envoi réel sur Panoramax |
 | Plateforme | Navigateur mobile : Safari (iPhone), Chrome (Android), installable sur l'écran d'accueil |
 | Référence | [Baba](https://wiki.openstreetmap.org/wiki/Baba) (Android) |
 | Adresse | <https://blamouche.github.io/arpent/> |
@@ -122,5 +122,5 @@ Principe directeur : **la plus simple possible**. Chaque fonctionnalité doit ê
 ## 10. Feuille de route
 
 - **v0.1 (MVP)** : périmètre ci-dessus.
-- **v0.2** : essais sur téléphones réels et envoi réel, correction de position, choix du cap relatif (avant / gauche / droite).
+- **v0.2** : essais sur Android, correction de position, choix du cap relatif (avant / gauche / droite).
 - **v0.3** : statistiques de séquence, liste des photos rejetées par le serveur.
