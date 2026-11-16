@@ -1,4 +1,4 @@
-// Client minimal de l'API Panoramax (mêmes routes qu'Arpent iOS, voir docs/API-PANORAMAX.md).
+// Client minimal de l'API Panoramax (routes utilisées : voir docs/API-PANORAMAX.md).
 // L'API autorise les appels depuis un navigateur (CORS), aucun serveur intermédiaire n'est nécessaire.
 
 export class APIError extends Error {

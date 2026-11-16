@@ -90,7 +90,7 @@ function tiltOf(pitch) {
 }
 const TILT_TEXT = { sky: 'trop vers le ciel', ground: 'trop vers le sol' };
 
-// ---------- Connexion (jeton « réclamé », comme sur iOS) ----------
+// ---------- Connexion (jeton « réclamé ») ----------
 
 const auth = {
   get current() {

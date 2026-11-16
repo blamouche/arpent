@@ -2,184 +2,185 @@
 
 ## Vue d'ensemble
 
-App SwiftUI mono-cible, iOS 17+, **sans dépendance externe**.
+Application web progressive (PWA) : HTML, CSS et JavaScript statiques en modules ES, **sans build, sans dépendance à installer, sans serveur à soi**. Le téléphone parle directement à l'API Panoramax (CORS). Seule bibliothèque embarquée : MapLibre GL JS pour les cartes.
 
 | Brique | Rôle |
 |---|---|
-| SwiftUI | Interface (4 écrans) |
-| SwiftData | Persistance des séquences et des métadonnées des photos |
-| AVFoundation | Caméra et injection EXIF sans recompression |
-| CoreLocation | GPS et boussole |
-| ImageIO | EXIF/GPS et vignettes |
-| URLSession | API Panoramax |
-| AuthenticationServices | Connexion web |
-| Keychain | Stockage du jeton |
+| `getUserMedia` + canvas | Caméra arrière, photo tirée du flux vidéo en JPEG |
+| Geolocation API | Position GPS, vitesse, direction de marche |
+| `deviceorientation(absolute)` | Cap de la caméra et inclinaison |
+| Wake Lock API (+ vidéo de secours) | Écran allumé pendant la prise de vue et l'envoi |
+| IndexedDB | Séquences, métadonnées des photos, JPEG et vignettes |
+| `localStorage` | Réglages, jeton Panoramax, cache des vignettes de carte |
+| `XMLHttpRequest` | Envoi des photos avec progression |
+| Service worker + manifeste | Installation sur l'écran d'accueil, fonctionnement hors ligne |
+| MapLibre GL JS 4.7.1 | Cartes (fonds OpenFreeMap) |
 
 ```mermaid
 flowchart LR
-    subgraph Vues
-        L[SequenceListView]
-        C[CaptureView]
-        D[SequenceDetailView]
-        S[SettingsView]
+    subgraph Écrans["app.js — écrans (routeur par #hash)"]
+        L["Liste #/"]
+        C["Capture #/capture/id"]
+        D["Détail #/seq/id"]
+        S["Réglages #/settings"]
     end
-    subgraph Services
-        CC[CaptureController]
-        CAM[CameraService]
-        LOC[LocationService]
-        EX[ExifWriter]
-        UP[Uploader]
-        AUTH[AuthService]
-        API[PanoramaxClient]
-        ST[Storage]
-        SET[AppSettings]
+    subgraph Modules
+        SEN[sensors.js\nGPS, boussole, caméra, écran]
+        EX[exif.js]
+        API[panoramax.js\nClient / SimulatedClient]
+        DB[db.js]
+        DEMO[demo-data.js]
     end
-    subgraph Données
-        SD[(SwiftData\nPhotoSequence / CapturedPhoto)]
-        FS[(Application Support\nSequences/&lt;id&gt;/*.jpg)]
-        KC[(Keychain\njeton JWT)]
+    subgraph Données["Navigateur"]
+        IDB[(IndexedDB\narpent / arpent-demo)]
+        LS[(localStorage\nréglages, jeton)]
+        SW[(Cache du service worker)]
     end
     L --> C & D & S
     D --> C
-    C --> CC
-    CC --> CAM & LOC
-    CAM --> EX
-    CC --> SD & FS
-    L & D --> UP
-    UP --> API & SD & FS
-    S --> AUTH
-    AUTH --> API & KC
-    API -->|HTTPS| PX[(Instance Panoramax)]
+    C --> SEN & EX & DB
+    L & D --> API & DB
+    S --> API & LS
+    L --> DEMO --> DB
+    DB --> IDB
+    API -->|HTTPS + CORS| PX[(Instance Panoramax)]
 ```
 
 ## Arborescence
 
 ```
-Arpent.xcodeproj/          projet Xcode (dossier synchronisé : tout fichier ajouté sous Arpent/ est compilé)
-Arpent/
-  ArpentApp.swift          point d'entrée, ModelContainer, injection AuthService / Uploader
-  Models/
-    PhotoSequence.swift    séquence (= upload set Panoramax)
-    CapturedPhoto.swift    photo : fichier, position, cap, date, statut d'envoi
-  Services/
-    AppSettings.swift      réglages (UserDefaults / @AppStorage)
-    Storage.swift          fichiers JPEG sur disque, suppression
-    LocationService.swift  CLLocationManager (position + cap)
-    CameraService.swift    AVCaptureSession, prise de vue, repli simulateur
-    ExifWriter.swift       dictionnaires EXIF/GPS (ImageIO)
-    CaptureController.swift règle temps + distance, enregistrement des photos
-    PanoramaxClient.swift  appels HTTP Panoramax
-    AuthService.swift      connexion par jeton réclamé + Keychain
-    Uploader.swift         envoi reprenable des séquences
-  Views/
-    SequenceListView.swift accueil
-    CaptureView.swift      prise de vue + CameraPreview
-    SequenceDetailView.swift carte, vignettes, envoi
-    SettingsView.swift     instance, compte, réglages de capture
-docs/                      PRD, architecture, notes API
+web/                       publié tel quel sur GitHub Pages
+  index.html, style.css    page unique, 4 écrans, thèmes clair et sombre
+  app.js                   routeur, écrans, réglages, connexion, envoi et suivi, cartes
+  sensors.js               mode Démo/Live, GPS, boussole et cap, inclinaison, caméra, écran allumé
+  panoramax.js             client de l'API Panoramax, client simulé pour la démo
+  exif.js                  segment EXIF/GPS inséré dans le JPEG sans recompression
+  db.js                    IndexedDB : séquences, photos, images
+  demo-data.js             séquence d'exemple téléchargée depuis Panoramax
+  sw.js                    service worker (réseau d'abord, cache en secours)
+  manifest.webmanifest, icons/
+  vendor/maplibre/         MapLibre GL JS + licence
+  vendor/keep-awake.mp4    vidéo de secours pour garder l'écran allumé
+  README.md                notes techniques détaillées
+docs/                      PRD, architecture, notes API, captures d'écran
+.github/workflows/pages.yml  déploiement de web/ sur GitHub Pages
 ```
 
 ## Modèle de données
 
 ```mermaid
 classDiagram
-    class PhotoSequence {
-      UUID id
+    class sequences {
+      String id
       String name
-      Date createdAt
+      Number createdAt
       String? uploadSetId
       String? uploadInstance
+      String? uploadVisibility
       Bool uploadCompleted
-      photos: [CapturedPhoto]
     }
-    class CapturedPhoto {
-      UUID id
+    class photos {
+      String id
+      String sequenceId
       String fileName
-      Double latitude, longitude, altitude
-      Double horizontalAccuracy
-      Double? heading
-      Date capturedAt
+      Number latitude, longitude, altitude?
+      Number accuracy
+      Number? heading
+      Number? pitch
+      Number capturedAt
       Bool uploaded
-      String? rejectedReason
+      Bool fileDeleted
     }
-    PhotoSequence "1" --> "*" CapturedPhoto : cascade
+    class blobs {
+      String id (= id photo)
+      Blob? jpeg
+      Blob thumb
+    }
+    sequences "1" --> "*" photos : index sequenceId
+    photos "1" --> "1" blobs
 ```
 
-- **Les JPEG sont sur disque** (`Application Support/Sequences/<id séquence>/IMG_yyyyMMdd_HHmmss_SSS.jpg`). La base ne contient que les métadonnées, ce qui garde SwiftData léger.
+- **Deux bases** : `arpent` (Live) et `arpent-demo` (Démo), pour que la démo ne touche jamais aux vraies photos.
+- **Images à part** : le magasin `photos` ne contient que des métadonnées légères ; JPEG et vignette sont dans `blobs` et ne sont lus qu'à la demande.
 - Les noms de fichiers sont horodatés à la milliseconde, donc uniques dans un upload set (exigence Panoramax).
-- La suppression d'une séquence efface son dossier puis l'objet (cascade sur les photos).
+- « Supprimer après envoi » efface le JPEG (`fileDeleted = true`) et garde la vignette, la position et le cap.
 
 ## Capture
 
 ```mermaid
 sequenceDiagram
-    participant T as Timer (N s)
-    participant CC as CaptureController
+    participant T as Minuteur (N s)
+    participant CAP as Écran capture
     participant LOC as LocationService
+    participant CMP as CompassService
     participant CAM as CameraService
-    participant FS as Disque + SwiftData
-    T->>CC: tick()
-    CC->>LOC: position récente ?
-    alt précision > seuil ou distance < D m
-        CC-->>T: on ne fait rien (immobile / GPS faible)
+    participant DB as IndexedDB
+    T->>CAP: tick()
+    CAP->>LOC: position récente et précise ?
+    alt précision > seuil, position de plus de 10 s ou distance < D m
+        CAP-->>T: rien (immobile / GPS faible)
+    else caméra trop inclinée (option)
+        CAP-->>T: pause, message « redressez le téléphone »
     else
-        CC->>CAM: capture(info GPS, angle)
-        CAM->>CAM: capturePhoto + MetadataCustomizer (EXIF GPS)
-        CAM-->>CC: JPEG
-        CC->>FS: écriture fichier + insertion CapturedPhoto
+        CAP->>CMP: cap et inclinaison
+        CAP->>CAM: capture()
+        CAM-->>CAP: JPEG + vignette (canvas)
+        CAP->>CAP: segment EXIF inséré (exif.js)
+        CAP->>DB: addPhoto(métadonnées, JPEG, vignette)
     end
 ```
 
 Points clés :
-- **Règle temps + distance** (`CaptureController.tick`) : le timer cadence les vérifications, la distance (`CLLocation.distance(from:)`) décide de la prise. À l'arrêt, aucune photo n'est prise.
-- **Position utilisable** : précision ≤ seuil et date de moins de 10 s.
-- **EXIF sans recompression** : `AVCapturePhoto.fileDataRepresentation(with:)` et un `AVCapturePhotoFileDataRepresentationCustomizer` remplacent les métadonnées (GPS + `DateTimeOriginal` / `SubsecTimeOriginal` / `OffsetTimeOriginal`).
-- **Cap** : boussole (`trueHeading`, alignée sur l'orientation physique du téléphone), sinon direction du déplacement (`course`).
-- **Orientation** : `videoRotationAngle` est réglé à chaque prise selon `UIDevice.orientation`. L'UI reste en portrait.
-- **Simulateur** : sans caméra, une image de test est générée et taguée via `ExifWriter.write`, ce qui permet de tester tout le flux avec une localisation simulée.
+- **Règle temps + distance** : le minuteur cadence les vérifications, la distance depuis la dernière photo décide de la prise. À l'arrêt, aucune photo.
+- **EXIF sans recompression** : un segment APP1 « Exif » est construit à la main et inséré dans le JPEG produit par le canvas.
+- **Cap** : direction du dos du téléphone (caméra arrière), en portrait comme en paysage ; sur iPhone, gyroscope recalé sur la boussole téléphone droit en portrait ; calage optionnel sur la direction de marche ; sinon direction GPS du déplacement. Le détail est dans [`web/README.md`](../web/README.md).
+- **Inclinaison** enregistrée avec chaque photo ; les alertes sont recalculées à l'affichage selon les seuils du moment.
 
 ## Authentification
 
 ```mermaid
 sequenceDiagram
-    participant App
+    participant App as Arpent (navigateur)
     participant API as Instance Panoramax
-    participant Web as Feuille web (ASWebAuthenticationSession)
-    App->>API: POST /api/auth/tokens/generate
+    App->>API: POST /api/auth/tokens/generate?description=Arpent Web
     API-->>App: jwt_token + lien claim
-    App->>Web: ouvre claim?next_url=arpent://auth-done
-    Web->>API: connexion OSM puis réclamation du jeton
-    Web-->>App: redirection arpent:// (ou fermeture manuelle)
+    App->>App: jeton en attente (localStorage arpent.pendingAuth)
+    App->>API: navigation vers claim?next_url=<adresse d'Arpent>#/settings
+    API->>API: connexion de l'utilisateur (OSM…) puis réclamation du jeton
+    API-->>App: redirection vers Arpent (ou retour manuel dans l'app)
     App->>API: GET /api/users/me (Bearer jwt)
     API-->>App: 200 {name}
-    App->>App: jwt → Keychain
+    App->>App: jeton validé (localStorage arpent.auth)
 ```
 
 - Aucun mot de passe ne transite par l'app.
+- Le jeton est vérifié au retour dans l'app (`visibilitychange`) ou avec « J'ai terminé, vérifier » si l'instance refuse la redirection.
 - Le jeton est lié à l'instance : changer d'URL déconnecte.
 
 ## Envoi
 
-`Uploader.upload(sequence)` :
-1. Crée un upload set (`POST /api/upload_sets`, `sort_method=time-asc`) s'il n'y en a pas, si l'instance a changé, ou si le précédent est déjà complété.
-2. Envoie les photos non envoyées une par une (`POST …/files`, multipart `file`). Chaque succès (202, ou 409 pour un doublon) passe `uploaded = true` et est sauvegardé immédiatement, d'où la **reprise**.
-3. `POST …/complete`, puis `uploadCompleted = true`.
+`uploadSequence(id)` dans `app.js` :
+1. Crée un upload set (`POST /api/upload_sets`, `sort_method=time-asc`, `visibility=owner-only` en envoi privé) s'il n'y en a pas, si l'instance ou la visibilité a changé, ou si le précédent est terminé.
+2. Envoie les photos non envoyées une par une (`POST …/files`, multipart `file`) avec progression. Chaque succès (202, ou 409 pour un doublon) passe `uploaded = true` et est enregistré aussitôt, d'où la **reprise** sans renvoi.
+3. `POST …/complete`, puis `uploadCompleted = true`. Une finalisation interrompue est relancée seule au prochain envoi.
 4. Si l'upload set a disparu côté serveur (404), un nouveau est créé et l'envoi recommence une fois.
-5. En option, les JPEG envoyés sont supprimés du disque ; l'historique est conservé.
+5. Selon le réglage, les JPEG envoyés sont effacés de l'appareil.
+6. Le lien vers la séquence publiée est lu dans `GET /api/upload_sets/{id}` → `associated_collections`.
 
-## Concurrence
+« Tout envoyer » enchaîne les séquences l'une après l'autre ; un **Arrêter** annule la requête en cours (`AbortController`). En démo, `SimulatedClient` remplace le client réel : même déroulé, aucun appel réseau.
 
-- `CaptureController`, `AuthService` et `Uploader` sont `@MainActor @Observable`.
-- `CameraService` sérialise tout l'accès AVFoundation sur une file dédiée (`arpent.camera`). Les captures en attente sont associées à leur `uniqueID`.
-- `LocationService` est créé sur le thread principal, donc ses callbacks y arrivent aussi.
-- Swift 5 language mode : pas de concurrence stricte, pour garder le code court.
+## Déploiement
+
+Chaque push sur `main` qui touche `web/` publie le dossier sur GitHub Pages ([workflow](../.github/workflows/pages.yml)). Le service worker passe par le réseau d'abord : un téléphone récupère la nouvelle version dès qu'il est en ligne ; le nom du cache (`arpent-vNN`) change à chaque version.
 
 ## Choix et alternatives écartées
 
 | Choix | Pourquoi | Écarté |
 |---|---|---|
-| SwiftUI + SwiftData | Moins de code ; iOS 17 couvre l'essentiel du parc | Core Data, fichiers JSON |
+| PWA statique | Une seule base de code pour iPhone et Android, rien à installer depuis un store, hébergement gratuit | Application iOS native (SwiftUI, abandonnée), app Android |
+| Aucun build, modules ES | Rien à installer pour développer ; le code publié est le code source | Bundler, framework |
+| Pas de serveur Arpent | L'API Panoramax accepte les appels du navigateur (CORS) ; les données ne passent par personne d'autre | Proxy d'envoi |
 | Upload sets (API récente) | Flux recommandé ; dédoublonnage et découpage côté serveur | `POST /collections/{id}/items` (ancien flux) |
-| Jeton réclamé | Pas de client OAuth à enregistrer auprès de chaque instance | OAuth natif, saisie manuelle d'un jeton |
-| Upload au premier plan | Simplicité ; reprise suffisante | `URLSession` background (v2) |
-| Projet Xcode à dossier synchronisé | `project.pbxproj` minimal, pas de générateur | XcodeGen, Tuist, SwiftPM app |
+| Jeton réclamé | Pas de client OAuth à enregistrer auprès de chaque instance | OAuth, saisie manuelle d'un jeton |
+| Photo tirée du flux vidéo | Seul accès caméra continu et sans interaction dans un navigateur | `<input type="file" capture>` (une interaction par photo) |
+| Envoi au premier plan | Une page web ne peut pas envoyer écran éteint ; la reprise suffit | Background Sync (support partiel) |

@@ -1,6 +1,6 @@
 // Écriture EXIF/GPS dans un JPEG, sans dépendance et sans recompression :
 // on construit un segment APP1 « Exif » et on l'insère dans le fichier produit par le canvas.
-// Mêmes balises que la version iOS (voir docs/API-PANORAMAX.md).
+// Balises lues par Panoramax : voir docs/API-PANORAMAX.md.
 
 const ASCII = 2, BYTE = 1, LONG = 4, RATIONAL = 5, UNDEFINED = 7;
 

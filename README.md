@@ -30,7 +30,6 @@ L'app s'ouvre en **mode démo** : position, caméra et envoi sont simulés, rien
 - [Tester l'envoi sans rien publier](#tester-lenvoi-sans-rien-publier)
 - [Développement](#développement)
 - [État du projet](#état-du-projet)
-- [Application iOS native](#application-ios-native)
 - [Crédits et licence](#crédits-et-licence)
 
 ---
@@ -218,7 +217,7 @@ Puis ouvrir <http://localhost:8137/>. La caméra et le GPS exigent **HTTPS** sur
 | `vendor/keep-awake.mp4` | vidéo de secours pour garder l'écran allumé (2 ko) |
 | `sw.js`, `manifest.webmanifest`, `icons/` | PWA installable et hors ligne |
 
-Documentation : [PRD](docs/PRD.md), [architecture](docs/ARCHITECTURE.md), [notes sur l'API Panoramax](docs/API-PANORAMAX.md). Détails techniques de la version web : [`web/README.md`](web/README.md).
+Documentation : [PRD](docs/PRD.md), [architecture](docs/ARCHITECTURE.md), [notes sur l'API Panoramax](docs/API-PANORAMAX.md), [notes techniques](web/README.md) (capteurs, cartes, stockage, démo).
 
 ---
 
@@ -245,20 +244,6 @@ Documentation : [PRD](docs/PRD.md), [architecture](docs/ARCHITECTURE.md), [notes
 - **Premier plan** : verrouiller le téléphone ou changer d'app arrête la capture et l'envoi. C'est une limite des pages web.
 - **Photo en paysage** : l'image suit l'orientation de l'écran. Pour photographier en paysage, désactiver le verrouillage de rotation (le cap, lui, est juste dans tous les cas).
 - **Retour après connexion** : si l'instance refuse la redirection, revenir dans Arpent puis toucher « J'ai terminé, vérifier » dans les réglages.
-
----
-
-## Application iOS native
-
-Le dossier [`Arpent/`](Arpent/) contient la première version, une application iOS native (SwiftUI, iOS 17+), avec le même principe : mode auto temps + distance, EXIF complet, envoi reprenable, connexion via le site de l'instance. La version web l'a dépassée en fonctionnalités.
-
-1. Ouvrir `Arpent.xcodeproj` avec Xcode 16 ou plus récent.
-2. Cible *Arpent* → *Signing & Capabilities* : choisir votre équipe. Un compte Apple gratuit suffit pour son propre iPhone.
-3. Lancer sur un iPhone ou un simulateur. Dans le simulateur, *Features → Location → City Run* simule un déplacement.
-
-```bash
-xcodebuild -project Arpent.xcodeproj -scheme Arpent -destination 'platform=iOS Simulator,name=iPhone 16' build
-```
 
 ---
 

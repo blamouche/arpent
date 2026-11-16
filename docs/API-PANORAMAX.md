@@ -9,8 +9,8 @@ Toutes les routes protégées acceptent `Authorization: Bearer <JWT>`.
 
 | Étape | Requête | Réponse |
 |---|---|---|
-| Générer un jeton | `POST /api/auth/tokens/generate?description=Arpent iOS` | `{ id, jwt_token, links: [{rel: "claim", href}] }`. Le jeton est inutilisable tant qu'il n'est pas réclamé. |
-| Réclamer le jeton (navigateur) | `GET /api/auth/tokens/{id}/claim?next_url=arpent://auth-done` | Connexion de l'utilisateur, puis redirection vers `next_url` (ou 200). |
+| Générer un jeton | `POST /api/auth/tokens/generate?description=Arpent Web` | `{ id, jwt_token, links: [{rel: "claim", href}] }`. Le jeton est inutilisable tant qu'il n'est pas réclamé. |
+| Réclamer le jeton (navigateur) | `GET /api/auth/tokens/{id}/claim?next_url=<adresse d'Arpent>#/settings` | Connexion de l'utilisateur, puis redirection vers `next_url` (ou 200). |
 | Vérifier | `GET /api/users/me` | `{ id, name, links, tos_accepted, … }` |
 | Révoquer | `DELETE /api/users/me/tokens/{id}` | — (non utilisé : la déconnexion oublie seulement le jeton localement) |
 
@@ -23,7 +23,7 @@ Alternative (non utilisée) : `POST /api/users/me/tokens` crée un jeton directe
 ```json
 { "title": "Séquence du 13 nov. 2026", "estimated_nb_files": 42, "sort_method": "time-asc" }
 ```
-Arpent Web envoie `"visibility": "owner-only"` quand l'option *Envoi privé (test)* est cochée ; sinon le champ est omis (visibilité par défaut du compte). Les valeurs acceptées par une instance sont dans `GET /api/configuration` → `visibility.possible_values` (OSM France : `anyone`, `owner-only`).
+Arpent envoie `"visibility": "owner-only"` quand l'option *Envoi privé (test)* est cochée ; sinon le champ est omis (visibilité par défaut du compte). Les valeurs acceptées par une instance sont dans `GET /api/configuration` → `visibility.possible_values` (OSM France : `anyone`, `owner-only`).
 
 Champs optionnels utiles : `split_distance`, `split_time`, `no_split`, `duplicate_distance`, `duplicate_rotation`, `no_deduplication`, `relative_heading` (0 = vers l'avant, -90 = gauche, 90 = droite), `visibility` (`anyone`, `logged-only`, `owner-only`), `semantics`, `metadata`.
 Réponse 200 : `{ id, completed, dispatched, ready, nb_items, links, … }`.
@@ -48,7 +48,7 @@ Les noms de fichiers doivent être uniques dans un upload set.
 `POST /api/upload_sets/{id}/complete`. Sans cet appel, les photos ne deviennent pas publiques.
 
 ### 4. Suivi
-- `GET /api/upload_sets/{id}` → `ready`, `items_status`, `associated_collections`. Arpent Web s'en sert pour afficher le lien vers la ou les séquences créées (`<instance>/sequence/<collection id>`) ; tant que la liste est vide, la séquence est « en cours de traitement ».
+- `GET /api/upload_sets/{id}` → `ready`, `items_status`, `associated_collections`. Arpent s'en sert pour afficher le lien vers la ou les séquences créées (`<instance>/sequence/<collection id>`) ; tant que la liste est vide, la séquence est « en cours de traitement ».
 - `GET /api/upload_sets/{id}/files` → statut par fichier, champ `rejected` avec la raison
 - `GET /api/users/me/upload_sets`
 
@@ -59,8 +59,7 @@ Les noms de fichiers doivent être uniques dans un upload set.
 | `GPSLatitude` / `GPSLatitudeRef`, `GPSLongitude` / `GPSLongitudeRef` | position |
 | `GPSAltitude` / `GPSAltitudeRef` | altitude (si connue) |
 | `GPSHPositioningError` | précision horizontale (m) |
-| `GPSImgDirection` / `GPSImgDirectionRef = T` | cap de prise de vue (nord vrai) |
+| `GPSImgDirection` / `GPSImgDirectionRef` | cap de prise de vue : `M` (magnétique) pour la boussole seule, `T` (nord géographique) une fois calé sur la marche ou pour la direction GPS |
 | `GPSSpeed` (km/h), `GPSTrack` | vitesse et direction du déplacement |
 | `GPSDateStamp` / `GPSTimeStamp` | horodatage UTC |
 | `DateTimeOriginal` + `SubsecTimeOriginal` + `OffsetTimeOriginal` | date locale avec millisecondes et fuseau |
-| `Make` / `Model` | posés par iOS (Apple / iPhone …) |
