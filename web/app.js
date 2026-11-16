@@ -8,6 +8,9 @@ import {
 } from './sensors.js';
 
 const app = document.getElementById('app');
+// Version publiée, à changer avec le nom du cache dans sw.js : affichée dans le diagnostic et
+// les réglages, pour vérifier qu'un téléphone a bien chargé la dernière version.
+const APP_VERSION = 'v26';
 
 // ---------- Outils ----------
 
@@ -790,8 +793,8 @@ async function renderCapture(id) {
       const d = compass.debug, n = (v) => (v == null ? '—' : Math.round(v));
       dbg.textContent = !d ? 'aucune donnée de boussole'
         : d.method === 'android'
-          ? `Android · α ${n(d.alpha)} β ${n(d.beta)} γ ${n(d.gamma)} · écran ${d.screen}°`
-          : `iOS ${n(d.raw)}° · gyro ${n(d.gyro)}°${d.offset != null ? ` ${d.offset >= 0 ? '+' : ''}${n(d.offset)}°` : ''} · β ${n(d.beta)} γ ${n(d.gamma)} · écran ${d.screen}° · calcul ${d.method}`;
+          ? `${APP_VERSION} · Android · α ${n(d.alpha)} β ${n(d.beta)} γ ${n(d.gamma)} · écran ${d.screen}°`
+          : `${APP_VERSION} · iOS ${n(d.raw)}° · gyro ${n(d.gyro)}°${d.offset != null ? ` ${d.offset >= 0 ? '+' : ''}${n(d.offset)}°` : ''} · β ${n(d.beta)} γ ${n(d.gamma)} · écran ${d.screen}° · calcul ${d.method}`;
     }
     updateMini(); // direction de la caméra sur la mini-carte
     const awake = $('#awake');
@@ -1399,7 +1402,7 @@ async function renderSettings() {
       </section>
       <section>
         <h2>À propos</h2>
-        <p class="hint">Arpent Web, prototype. Mode actuel : ${DEMO ? 'démo (position et caméra simulées)' : 'live'}, modifiable en haut de la liste des séquences.</p>
+        <p class="hint">Arpent Web ${APP_VERSION}, prototype. Mode actuel : ${DEMO ? 'démo (position et caméra simulées)' : 'live'}, modifiable en haut de la liste des séquences.</p>
         ${DEMO ? '<button class="secondary" id="resetDemo">Réinitialiser la démo</button><p class="hint">Efface les séquences de démo et retélécharge la séquence d’exemple Panoramax.</p>' : ''}
         <p class="hint">Code source et suivi des problèmes : <a href="https://github.com/blamouche/arpent" target="_blank" rel="noopener">github.com/blamouche/arpent</a></p>
       </section>
