@@ -1,5 +1,8 @@
 # Arpent
 
+> [!WARNING]
+> **Travail en cours (WIP).** Arpent est un prototype : fonctionnalités, réglages et format des données peuvent encore changer, et l'envoi réel sur Panoramax n'a pas encore été validé. Voir [État du projet](#état-du-projet).
+
 **Capturer des séquences de photos géolocalisées depuis un téléphone et les publier sur [Panoramax](https://panoramax.fr)**, la géo-photothèque libre (photos de rue, comme Street View, mais en commun).
 
 Arpent est une **application web** (PWA) : on ouvre une adresse sur iPhone ou Android, sans rien installer depuis un store. On marche, l'app prend une photo régulièrement, puis on envoie la séquence sur Panoramax.
@@ -233,9 +236,10 @@ Documentation : [PRD](docs/PRD.md), [architecture](docs/ARCHITECTURE.md), [notes
   - arrêt en cours d'envoi puis reprise ;
   - *Tout envoyer* avec une file d'attente.
 - **CORS** de `panoramax.openstreetmap.fr`.
+- **Sur iPhone**, avec **Safari** et **Chrome**.
 
 **Pas encore testé** :
-- sur un vrai iPhone ou Android (caméra réelle, boussole, maintien de l'écran) ;
+- sur un téléphone Android ;
 - un envoi réel sur une instance Panoramax.
 
 **Limites connues**
