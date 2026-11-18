@@ -23,6 +23,15 @@ Alternative (non utilisée) : `POST /api/users/me/tokens` crée un jeton directe
 ```json
 { "title": "Séquence du 13 nov. 2026", "estimated_nb_files": 42, "sort_method": "time-asc" }
 ```
+Arpent ajoute toujours des tags sémantiques qui identifient l'application ; le serveur les recopie sur toutes les séquences créées par l'upload set :
+```json
+"semantics": [
+  { "key": "created_by", "value": "Arpent Web v31" },
+  { "key": "created_by:url", "value": "https://blamouche.github.io/arpent/" }
+]
+```
+L'en-tête `User-Agent`, d'où Panoramax tire `geovisio:upload-software`, n'est pas modifiable depuis un navigateur : les séquences y apparaissent comme envoyées par un navigateur, pas par Arpent.
+
 Arpent envoie `"visibility": "owner-only"` quand l'option *Envoi privé (test)* est cochée ; sinon le champ est omis (visibilité par défaut du compte). Les valeurs acceptées par une instance sont dans `GET /api/configuration` → `visibility.possible_values` (OSM France : `anyone`, `owner-only`).
 
 Champs optionnels utiles : `split_distance`, `split_time`, `no_split`, `duplicate_distance`, `duplicate_rotation`, `no_deduplication`, `relative_heading` (0 = vers l'avant, -90 = gauche, 90 = droite), `visibility` (`anyone`, `logged-only`, `owner-only`), `semantics`, `metadata`.
@@ -63,3 +72,11 @@ Les noms de fichiers doivent être uniques dans un upload set.
 | `GPSSpeed` (km/h), `GPSTrack` | vitesse et direction du déplacement |
 | `GPSDateStamp` / `GPSTimeStamp` | horodatage UTC |
 | `DateTimeOriginal` + `SubsecTimeOriginal` + `OffsetTimeOriginal` | date locale avec millisecondes et fuseau |
+| `Software` | `Arpent Web <version>` |
+| `Make` / `Model` | si le navigateur les donne : `Apple` / `iPhone` (ou `iPad`) sur iOS, où Safari ne dit jamais le modèle exact ; sur Android, le modèle via `navigator.userAgentData` (Chrome), le fabricant seulement pour Google Pixel, Samsung (`SM-…`) et Fairphone |
+| XMP `GPano:PosePitchDegrees` | inclinaison de la caméra : 0 = horizon, +90 = ciel, -90 = sol |
+| XMP `GPano:PoseRollDegrees` | roulis par rapport au cadre de l'image : bras gauche vers le bas = -90, droit = +90 ; omis caméra presque verticale (> 80°) |
+
+Le pitch et le roulis vont dans un segment APP1 XMP séparé, placé juste après l'EXIF. Le lecteur de Panoramax (`geo-picture-tag-reader`) les lit dans `Xmp.Camera.*` ou `Xmp.GPano.Pose*` ; sans `GPano:ProjectionType`, la photo reste considérée comme plate (pas 360°).
+
+Non renseignés faute de source fiable : la focale (`FocalLength`, `FocalLengthIn35mmFilm`), donc le champ de vision que Panoramax en déduit. Le navigateur ne la donne pas, et l'image vient d'un flux vidéo éventuellement recadré.

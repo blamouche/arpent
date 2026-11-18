@@ -1,16 +1,22 @@
 // Arpent Web : interface (4 écrans), réglages, connexion et envoi.
 import * as db from './db.js';
-import { buildExifSegment, withExif } from './exif.js';
+import { buildExifSegment, buildXmpSegment, withExif } from './exif.js';
 import * as demoData from './demo-data.js';
 import { Client, NotLoggedIn, SimulatedClient, normalizeInstance, sequencePageURL } from './panoramax.js';
 import {
-  DEMO, LocationService, CompassService, CameraService, distance, keepAwake, pitchLabel, wakeState, requestCompassPermission, setMode,
+  DEMO, LocationService, CompassService, CameraService, deviceInfo, distance, keepAwake, pitchLabel, wakeState, requestCompassPermission, setMode,
 } from './sensors.js';
 
 const app = document.getElementById('app');
 // Version publiée, à changer avec le nom du cache dans sw.js : affichée dans le diagnostic et
 // les réglages, pour vérifier qu'un téléphone a bien chargé la dernière version.
-const APP_VERSION = 'v30';
+const APP_VERSION = 'v31';
+const APP_URL = 'https://blamouche.github.io/arpent/';
+// Tags sémantiques posés sur chaque upload set : Panoramax les recopie sur les séquences créées.
+const UPLOAD_SEMANTICS = [
+  { key: 'created_by', value: `Arpent Web ${APP_VERSION}` },
+  { key: 'created_by:url', value: APP_URL },
+];
 
 // ---------- Outils ----------
 
@@ -188,7 +194,7 @@ async function sendSequence(id, client, u) {
   // Nouvel upload set si aucun, si l'instance ou la visibilité a changé, ou si le précédent est terminé.
   if (!seq.uploadSetId || seq.uploadInstance !== client.base || seq.uploadCompleted
       || (seq.uploadVisibility ?? null) !== visibility) {
-    const set = await client.createUploadSet(seq.name, pending.length, visibility);
+    const set = await client.createUploadSet(seq.name, pending.length, visibility, UPLOAD_SEMANTICS);
     Object.assign(seq, { uploadSetId: set.id, uploadInstance: client.base, uploadCompleted: false, uploadVisibility: visibility });
     await db.putSequence(seq);
   }
@@ -638,6 +644,7 @@ async function renderCapture(id) {
   const location_ = new LocationService();
   const compass = new CompassService();
   compass.useWalk = settings.walkCalibration;
+  deviceInfo(); // détecté d'avance : prêt à la première photo
 
   let count = existing.length;
   let isAuto = false, capturing = false, timer = null, closed = false;
@@ -704,12 +711,15 @@ async function renderCapture(id) {
       const date = new Date();
       const heading = compass.best(pos);
       const pitch = compass.pitch;
+      const roll = compass.roll;
       const { jpeg, thumb } = await camera.capture();
+      const { make, model } = await deviceInfo();
       const segment = buildExifSegment({
         latitude: pos.latitude, longitude: pos.longitude, altitude: pos.altitude, accuracy: pos.accuracy,
         speed: pos.speed, course: pos.course, heading: heading?.value, headingRef: heading?.ref, date,
+        make, model, software: `Arpent Web ${APP_VERSION}`,
       });
-      const file = await withExif(jpeg, segment);
+      const file = await withExif(jpeg, segment, buildXmpSegment({ pitch, roll }));
       if (closed) return;
       await db.addPhoto({
         id: uuid(), sequenceId: id, fileName: fileName(date),

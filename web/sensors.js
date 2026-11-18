@@ -181,6 +181,29 @@ export function cameraPitch(beta, gamma) {
   return Math.asin(Math.max(-1, Math.min(1, sinElevation))) / r;
 }
 
+/**
+ * Rotation du téléphone autour de l'axe de la caméra, d'après la gravité : 0 debout en portrait,
+ * +90 haut du téléphone à gauche, -90 à droite. null caméra presque verticale (sol ou ciel), où
+ * le roulis n'a plus de sens.
+ */
+export function deviceRoll(beta, gamma) {
+  const r = Math.PI / 180, b = beta * r, g = gamma * r;
+  const x = -Math.cos(b) * Math.sin(g), y = Math.sin(b), z = Math.cos(b) * Math.cos(g); // verticale
+  if (Math.abs(z) > Math.sin(80 * r)) return null;
+  return Math.atan2(x, y) / r;
+}
+
+/**
+ * Roulis de la photo, convention Panoramax (bras gauche vers le bas = -90, droit = +90).
+ * L'image suit la rotation de l'écran : on mesure l'écart entre le téléphone et l'écran.
+ * Vérification des signes : téléphone tourné vers la gauche (haut à gauche, deviceRoll +90),
+ * écran resté en portrait (rotation verrouillée) : le côté gauche de l'image descend, -90.
+ */
+export function imageRoll(roll, screen) {
+  if (roll == null) return null;
+  return -wrap180(roll - screen);
+}
+
 /** Libellé court d'une inclinaison : « 12° vers le sol », « horizontale ». */
 export function pitchLabel(pitch) {
   const a = Math.round(Math.abs(pitch));
@@ -200,6 +223,7 @@ export class CompassService {
   heading = null;
   orientation = null; // portrait, landscape-left, landscape-right, portrait-inverse, flat
   #pitch = null;
+  #roll = null;
   #pitchAt = 0;
   #at = 0;
   // iPhone : cap réel = cap gyroscopique (alpha, beta, gamma) + décalage. Le décalage est mesuré
@@ -225,6 +249,7 @@ export class CompassService {
     if (e.beta != null && e.gamma != null) {
       this.orientation = physicalOrientation(e.beta, e.gamma);
       this.#pitch = cameraPitch(e.beta, e.gamma);
+      this.#roll = deviceRoll(e.beta, e.gamma);
       this.#pitchAt = Date.now();
     }
     if (typeof e.webkitCompassHeading === 'number' && e.webkitCompassHeading >= 0) {
@@ -330,11 +355,51 @@ export class CompassService {
     return 4 * Math.sin(t / 3) - 2;
   }
 
+  /**
+   * Roulis de la photo (convention Panoramax, voir imageRoll), ou null si inconnu. En démo, sans
+   * capteur : léger balancement autour de l'horizontale.
+   */
+  get roll() {
+    if (Date.now() - this.#pitchAt < 2000) return imageRoll(this.#roll, screenAngle());
+    if (!DEMO) return null;
+    return 3 * Math.sin((Date.now() - this.#demoStart) / 2300);
+  }
+
   /** Libellé de l'orientation de prise : capteurs si disponibles, sinon forme de l'écran. */
   get orientationLabel() {
     if (this.orientation) return ORIENTATION_LABELS[this.orientation];
     return matchMedia('(orientation: landscape)').matches ? 'paysage' : 'portrait';
   }
+}
+
+// ---------- Appareil ----------
+
+// Fabricant déduit du nom de modèle, pour les familles sans ambiguïté seulement.
+const MAKES = [[/^Pixel\b/i, 'Google'], [/^SM-/i, 'samsung'], [/^FP\d/i, 'Fairphone']];
+
+async function detectDevice() {
+  const ua = navigator.userAgent;
+  // Safari ne donne jamais le modèle exact : « iPhone » ou « iPad » seulement.
+  if (/iPhone/.test(ua)) return { make: 'Apple', model: 'iPhone' };
+  if (/iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)) return { make: 'Apple', model: 'iPad' };
+  let model = null;
+  try {
+    model = (await navigator.userAgentData?.getHighEntropyValues(['model']))?.model || null; // Chrome Android
+  } catch { /* refusé */ }
+  if (!model) {
+    const m = ua.match(/Android [^;)]*; ([^;)]+?)(?: Build\/[^;)]*)?\)/);
+    if (m && m[1] !== 'K') model = m[1].trim(); // « K » : modèle masqué par Chrome
+  }
+  if (!model) return {};
+  const make = MAKES.find(([re]) => re.test(model))?.[1];
+  return make ? { make, model } : { model };
+}
+
+let device = null;
+/** { make?, model? } du téléphone, autant que le navigateur le dit (calculé une fois). */
+export function deviceInfo() {
+  device ??= detectDevice().catch(() => ({}));
+  return device;
 }
 
 // ---------- Caméra ----------

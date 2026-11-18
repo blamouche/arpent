@@ -93,7 +93,7 @@ function writeIFD(buf, view, start, entries) {
 
 /**
  * info : { latitude, longitude, altitude?, accuracy?, heading?, headingRef?, speed? (m/s),
- *          course?, date: Date, make?, model? }
+ *          course?, date: Date, make?, model?, software? }
  * Renvoie le segment APP1 complet (marqueur compris).
  */
 export function buildExifSegment(info) {
@@ -101,7 +101,7 @@ export function buildExifSegment(info) {
   const ms = pad(d.getMilliseconds(), 3);
 
   const ifd0 = [
-    ascii(0x0131, 'Arpent Web'), // Software
+    ascii(0x0131, info.software || 'Arpent Web'), // Software
   ];
   if (info.make) ifd0.push(ascii(0x010f, info.make));
   if (info.model) ifd0.push(ascii(0x0110, info.model));
@@ -169,8 +169,35 @@ export function buildExifSegment(info) {
   return segment;
 }
 
-/** Insère le segment EXIF dans un JPEG (Blob) en retirant un éventuel EXIF existant. */
-export async function withExif(jpeg, segment) {
+const XMP_HEADER = 'http://ns.adobe.com/xap/1.0/\0';
+
+/**
+ * Segment APP1 XMP portant l'inclinaison (pitch : 0 horizon, +90 ciel) et le roulis (bras gauche
+ * vers le bas = -90) de la caméra, en degrés, dans l'espace de noms GPano que lit Panoramax.
+ * Sans GPano:ProjectionType, la photo reste considérée comme plate. null si rien à écrire.
+ */
+export function buildXmpSegment({ pitch = null, roll = null } = {}) {
+  const attrs = [];
+  if (Number.isFinite(pitch)) attrs.push(`GPano:PosePitchDegrees="${pitch.toFixed(1)}"`);
+  if (Number.isFinite(roll)) attrs.push(`GPano:PoseRollDegrees="${roll.toFixed(1)}"`);
+  if (!attrs.length) return null;
+  const packet = '<?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTczkc9d"?>'
+    + '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
+    + `<rdf:Description rdf:about="" xmlns:GPano="http://ns.google.com/photos/1.0/panorama/" ${attrs.join(' ')}/>`
+    + '</rdf:RDF></x:xmpmeta><?xpacket end="w"?>';
+  const body = enc.encode(XMP_HEADER + packet);
+  const length = 2 + body.length;
+  const segment = new Uint8Array(2 + length);
+  segment.set([0xff, 0xe1, length >> 8, length & 0xff]);
+  segment.set(body, 4);
+  return segment;
+}
+
+/**
+ * Insère les segments (EXIF, puis XMP éventuel) dans un JPEG (Blob) en retirant un éventuel EXIF
+ * existant. Les segments null sont ignorés.
+ */
+export async function withExif(jpeg, ...segments) {
   const buf = new Uint8Array(await jpeg.arrayBuffer());
   if (buf[0] !== 0xff || buf[1] !== 0xd8) throw new Error('JPEG invalide');
 
@@ -188,6 +215,6 @@ export async function withExif(jpeg, segment) {
   // APP0 (JFIF) reste en tête s'il existe, l'EXIF le suit.
   const parts = [buf.subarray(0, 2)];
   if (head[0] && head[0][1] === 0xe0) parts.push(head.shift());
-  parts.push(segment, ...head, buf.subarray(i));
+  parts.push(...segments.filter(Boolean), ...head, buf.subarray(i));
   return new Blob(parts, { type: 'image/jpeg' });
 }
