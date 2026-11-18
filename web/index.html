@@ -23,9 +23,23 @@
       document.querySelector('meta[name=theme-color]').content = m === 'live' ? '#0f6b4f' : '#5b47c7';
     })();
   </script>
+  <!-- Version publiée (?v=NN) : le seul bloc à changer à chaque version. Elle est dans l'URL de
+       chaque fichier de l'app pour qu'aucun cache (navigateur, service worker) ne mélange deux
+       versions ; app.js et sw.js la lisent dans leur propre URL. -->
   <link rel="stylesheet" href="vendor/maplibre/maplibre-gl.css">
-  <link rel="stylesheet" href="style.css">
-  <script type="module" src="app.js"></script>
+  <link rel="stylesheet" href="style.css?v=32">
+  <script type="importmap">
+  {
+    "imports": {
+      "./db.js": "./db.js?v=32",
+      "./demo-data.js": "./demo-data.js?v=32",
+      "./exif.js": "./exif.js?v=32",
+      "./panoramax.js": "./panoramax.js?v=32",
+      "./sensors.js": "./sensors.js?v=32"
+    }
+  }
+  </script>
+  <script type="module" src="app.js?v=32"></script>
 </head>
 <body>
   <div id="app"></div>

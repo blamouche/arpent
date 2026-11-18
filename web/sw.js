@@ -2,17 +2,16 @@
 // Réseau d'abord pour toujours avoir la dernière version, cache en secours.
 // Les appels à l'API Panoramax (autre origine) ne passent pas par ici.
 
-const CACHE = 'arpent-v31';
+// Version lue dans l'URL du service worker (sw.js?v=NN, enregistré par app.js) : un cache par
+// version, les anciens sont supprimés à l'activation.
+const VERSION = new URL(self.location).searchParams.get('v');
+const CACHE = `arpent-${VERSION ? `v${VERSION}` : 'dev'}`;
+const v = VERSION ? `?v=${VERSION}` : '';
 const ASSETS = [
   './',
   './index.html',
-  './style.css',
-  './app.js',
-  './db.js',
-  './exif.js',
-  './panoramax.js',
-  './sensors.js',
-  './demo-data.js',
+  // Mêmes URL que celles demandées par index.html (version comprise), pour le hors-ligne.
+  ...['style.css', 'app.js', 'db.js', 'exif.js', 'panoramax.js', 'sensors.js', 'demo-data.js'].map((f) => `./${f}${v}`),
   './vendor/maplibre/maplibre-gl.js',
   './vendor/keep-awake.mp4',
   './vendor/maplibre/maplibre-gl.css',
@@ -23,8 +22,20 @@ const ASSETS = [
   './icons/apple-touch-icon.png',
 ];
 
+// Le cache HTTP du navigateur garde les fichiers quelques minutes (10 min sur GitHub Pages).
+// Les fichiers versionnés y échappent par leur URL ; pour le reste (index.html surtout, qui fixe
+// la version), on le contourne : `reload` à l'installation, `no-cache` (revalidation auprès du
+// serveur, 304 si inchangé) à chaque requête.
+const fresh = (request, cache) => (request.mode === 'navigate'
+  ? new Request(request.url, { cache, credentials: request.credentials }) // une requête de navigation ne peut pas être recopiée avec des options
+  : new Request(request, { cache }));
+
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  event.waitUntil(
+    caches.open(CACHE)
+      .then((c) => c.addAll(ASSETS.map((url) => new Request(url, { cache: 'reload' }))))
+      .then(() => self.skipWaiting()),
+  );
 });
 
 self.addEventListener('activate', (event) => {
@@ -39,7 +50,7 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   if (request.method !== 'GET' || new URL(request.url).origin !== self.location.origin) return;
   event.respondWith(
-    fetch(request)
+    fetch(fresh(request, 'no-cache'))
       .then((response) => {
         if (response.ok) {
           const copy = response.clone();

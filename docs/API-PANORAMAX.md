@@ -26,7 +26,7 @@ Alternative (non utilisée) : `POST /api/users/me/tokens` crée un jeton directe
 Arpent ajoute toujours des tags sémantiques qui identifient l'application ; le serveur les recopie sur toutes les séquences créées par l'upload set :
 ```json
 "semantics": [
-  { "key": "created_by", "value": "Arpent Web v31" },
+  { "key": "created_by", "value": "Arpent Web v32" },
   { "key": "created_by:url", "value": "https://blamouche.github.io/arpent/" }
 ]
 ```

@@ -171,7 +171,9 @@ sequenceDiagram
 
 ## Déploiement
 
-Chaque push sur `main` qui touche `web/` publie le dossier sur GitHub Pages ([workflow](../.github/workflows/pages.yml)). Le service worker passe par le réseau d'abord : un téléphone récupère la nouvelle version dès qu'il est en ligne ; le nom du cache (`arpent-vNN`) change à chaque version.
+Chaque push sur `main` qui touche `web/` publie le dossier sur GitHub Pages ([workflow](../.github/workflows/pages.yml)). Le service worker passe par le réseau d'abord : un téléphone récupère la nouvelle version dès qu'il est en ligne.
+
+**Publier une version** : changer `?v=NN` dans le bloc dédié de [index.html](../web/index.html) (feuille de style, import map, `app.js`), et nulle part ailleurs. `app.js` lit la version dans sa propre URL (affichage, tag `created_by`, EXIF `Software`) et enregistre `sw.js?v=NN`, qui en tire le nom de son cache (`arpent-vNN`). La version dans l'URL de chaque module empêche les caches du navigateur de mêler deux versions : ils peuvent servir un module importé sans passer par le service worker, et un `app.js` neuf avec un `exif.js` ancien bloquait le chargement. `index.html` lui-même est revalidé à chaque ouverture (`cache: 'no-cache'` dans le service worker).
 
 ## Choix et alternatives écartées
 

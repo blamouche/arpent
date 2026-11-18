@@ -42,7 +42,7 @@ Puis ouvrir <http://localhost:8137/>. Sans build, sans dépendance : il n'y a ri
   - `SimulatedClient` reproduit les méthodes du client Panoramax sans réseau (débit d'environ 600 ko/s) ;
   - la position est une marche simulée à 1,4 m/s, avec une pause de 6 s toutes les 20 s ;
   - l'inclinaison est simulée en l'absence de capteur.
-- **Service worker** : le réseau d'abord (pour toujours avoir la dernière version), le cache en secours. Le nom du cache (`arpent-vNN`) change à chaque version publiée.
+- **Service worker** : le réseau d'abord (pour toujours avoir la dernière version), le cache en secours. La version publiée (`?v=NN`) se change uniquement dans `index.html` : elle est dans l'URL de chaque fichier de l'app, et donne le nom du cache (`arpent-vNN`).
 
 ## Tests manuels utiles
 

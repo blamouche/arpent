@@ -8,9 +8,10 @@ import {
 } from './sensors.js';
 
 const app = document.getElementById('app');
-// Version publiée, à changer avec le nom du cache dans sw.js : affichée dans le diagnostic et
-// les réglages, pour vérifier qu'un téléphone a bien chargé la dernière version.
-const APP_VERSION = 'v31';
+// Version publiée, lue dans l'URL de ce fichier (app.js?v=NN, fixée dans index.html) : affichée
+// dans le diagnostic et les réglages, pour vérifier qu'un téléphone a bien chargé la dernière.
+const VERSION = new URL(import.meta.url).searchParams.get('v');
+const APP_VERSION = VERSION ? `v${VERSION}` : 'dev';
 const APP_URL = 'https://blamouche.github.io/arpent/';
 // Tags sémantiques posés sur chaque upload set : Panoramax les recopie sur les séquences créées.
 const UPLOAD_SEMANTICS = [
@@ -1588,7 +1589,8 @@ const ICON_GEAR = '<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="
 // ---------- Démarrage ----------
 
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('./sw.js').catch(() => {});
+  // La version dans l'URL : une nouvelle version installe un nouveau service worker (et son cache).
+  navigator.serviceWorker.register(`./sw.js${VERSION ? `?v=${VERSION}` : ''}`).catch(() => {});
 }
 auth.checkPending();
 render();
