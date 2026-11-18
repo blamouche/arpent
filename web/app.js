@@ -10,7 +10,7 @@ import {
 const app = document.getElementById('app');
 // Version publiée, à changer avec le nom du cache dans sw.js : affichée dans le diagnostic et
 // les réglages, pour vérifier qu'un téléphone a bien chargé la dernière version.
-const APP_VERSION = 'v29';
+const APP_VERSION = 'v30';
 
 // ---------- Outils ----------
 
@@ -1190,6 +1190,13 @@ async function liveMap(container) {
   };
 }
 
+const orientationOf = (w, h) => (!w || !h || w === h ? null : h > w ? 'portrait' : 'paysage');
+const ORIENT_TEXT = { portrait: 'mode portrait', paysage: 'mode paysage' };
+const ORIENT_ICON = {
+  portrait: '<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><rect x="4.5" y="1.5" width="7" height="13" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>',
+  paysage: '<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><rect x="1.5" y="4.5" width="13" height="7" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>',
+};
+
 async function renderDetail(id) {
   const seq = await db.getSequence(id);
   if (!seq) { location.hash = '#/'; return; }
@@ -1238,6 +1245,14 @@ async function renderDetail(id) {
         const u = URL.createObjectURL(b.thumb);
         urls.push(u);
         e.target.style.backgroundImage = `url("${u}")`;
+        // Portrait ou paysage, d'après les proportions de la vignette (valable pour les séquences existantes).
+        createImageBitmap(b.thumb).then((img) => {
+          const o = orientationOf(img.width, img.height);
+          img.close();
+          if (!o || e.target.querySelector('.orient-badge')) return;
+          e.target.insertAdjacentHTML('beforeend', `<span class="orient-badge" title="${ORIENT_TEXT[o]}">${ORIENT_ICON[o]}</span>`);
+          e.target.setAttribute('aria-label', `${e.target.getAttribute('aria-label')}, ${ORIENT_TEXT[o]}`);
+        }).catch(() => {});
       });
     }
   });
@@ -1246,7 +1261,7 @@ async function renderDetail(id) {
   let map = null, closed = false;
   const mapEl = app.querySelector('#map');
   if (mapEl) {
-    trackMap(mapEl, photos, openViewer)
+    trackMap(mapEl, photos, (p) => openViewer(photos, photos.indexOf(p)))
       .then((m) => { if (closed) m.remove(); else map = m; })
       .catch((e) => { mapEl.classList.add('map-error'); mapEl.textContent = e.message; });
   }
@@ -1286,7 +1301,7 @@ async function renderDetail(id) {
 
   app.querySelector('.grid').onclick = (e) => {
     const btn = e.target.closest('.thumb');
-    if (btn) openViewer(photos.find((p) => p.id === btn.dataset.id));
+    if (btn) openViewer(photos, photos.findIndex((p) => p.id === btn.dataset.id));
   };
 }
 
@@ -1329,29 +1344,120 @@ async function showPanoramaxLink(seq) {
   }
 }
 
-async function openViewer(photo) {
-  const b = await db.getBlobs(photo.id);
-  const url = URL.createObjectURL(b?.jpeg ?? b?.thumb ?? new Blob());
+const photoInfo = (photo) => `${new Date(photo.capturedAt).toLocaleString('fr-FR')} · ±${Math.round(photo.accuracy)} m${photo.heading != null ? ` · cap ${Math.round(photo.heading)}°` : ''}${photo.pitch != null ? ` · ${tiltOf(photo.pitch) ? `<b class="tilt-text">⚠ ${TILT_TEXT[tiltOf(photo.pitch)]} : ${Math.round(Math.abs(photo.pitch))}°</b>` : `inclinaison ${pitchLabel(photo.pitch)}`}` : ''}${photo.uploaded ? ' · envoyée' : ''}${photo.fileDeleted ? ' (fichier supprimé du téléphone)' : ''}`;
+
+/**
+ * Visionneuse plein écran d'une séquence, ouverte sur photos[index].
+ * Balayer à gauche ou à droite (ou flèches du clavier) passe à la photo suivante ou précédente ;
+ * après une suppression, la photo suivante s'affiche (la précédente si c'était la dernière).
+ */
+async function openViewer(photos, index) {
+  const list = [...photos];
+  let i = Math.min(Math.max(index, 0), list.length - 1);
+  if (i < 0) return;
+  let url = null, token = 0, changed = false;
   const el = document.createElement('div');
   el.className = 'viewer';
+  el.setAttribute('role', 'dialog');
+  el.setAttribute('aria-modal', 'true');
   el.innerHTML = `
-    <img src="${url}" alt="">
+    <img alt="" draggable="false">
     <div class="info">
-      <span>${new Date(photo.capturedAt).toLocaleString('fr-FR')} · ±${Math.round(photo.accuracy)} m${photo.heading != null ? ` · cap ${Math.round(photo.heading)}°` : ''}${photo.pitch != null ? ` · ${tiltOf(photo.pitch) ? `<b class="tilt-text">⚠ ${TILT_TEXT[tiltOf(photo.pitch)]} : ${Math.round(Math.abs(photo.pitch))}°</b>` : `inclinaison ${pitchLabel(photo.pitch)}`}` : ''}${photo.uploaded ? ' · envoyée' : ''}${photo.fileDeleted ? ' (fichier supprimé du téléphone)' : ''}</span>
+      <span><b class="vpos"></b> · <span class="vdesc"></span></span>
       <div class="row">
         <button class="danger" id="vdel">Supprimer la photo</button>
         <button class="primary" id="vclose">Fermer</button>
       </div>
     </div>`;
   document.body.append(el);
-  const close = () => { el.remove(); URL.revokeObjectURL(url); };
+  const img = el.querySelector('img');
+
+  // Affiche list[n] ; from = 1 ou -1 fait entrer la photo par la droite ou par la gauche.
+  const show = async (n, from = 0) => {
+    i = n;
+    const photo = list[i];
+    const t = ++token;
+    el.querySelector('.vpos').textContent = `${i + 1}/${list.length}`;
+    el.querySelector('.vdesc').innerHTML = photoInfo(photo);
+    img.setAttribute('aria-label', `Photo ${i + 1} sur ${list.length}`);
+    const b = await db.getBlobs(photo.id);
+    const next = URL.createObjectURL(b?.jpeg ?? b?.thumb ?? new Blob());
+    const pre = new Image();
+    pre.src = next;
+    await pre.decode().catch(() => {});
+    if (t !== token || !el.isConnected) { URL.revokeObjectURL(next); return; }
+    img.src = next;
+    if (url) URL.revokeObjectURL(url);
+    url = next;
+    img.style.transition = 'none';
+    img.style.transform = '';
+    if (from) img.animate([{ transform: `translateX(${from * 30}%)`, opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 180, easing: 'ease-out' });
+  };
+  const go = (dir) => {
+    const n = i + dir;
+    if (n < 0 || n >= list.length) return false;
+    show(n, dir);
+    return true;
+  };
+
+  // Balayage : l'image suit le doigt, avec de la résistance au bout de la séquence.
+  let drag = null;
+  const reset = () => { img.style.transition = 'transform .18s ease-out'; img.style.transform = ''; };
+  img.addEventListener('pointerdown', (e) => {
+    if (!e.isPrimary) return;
+    drag = { id: e.pointerId, x: e.clientX, y: e.clientY, dx: 0, horizontal: null };
+    img.setPointerCapture(e.pointerId);
+    img.style.transition = 'none';
+  });
+  img.addEventListener('pointermove', (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    drag.dx = e.clientX - drag.x;
+    const dy = e.clientY - drag.y;
+    if (drag.horizontal == null && Math.hypot(drag.dx, dy) > 10) drag.horizontal = Math.abs(drag.dx) > Math.abs(dy);
+    if (!drag.horizontal) return;
+    const atEnd = (drag.dx > 0 && i === 0) || (drag.dx < 0 && i === list.length - 1);
+    img.style.transform = `translateX(${atEnd ? drag.dx / 3 : drag.dx}px)`;
+  });
+  const release = (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const { dx, horizontal } = drag;
+    drag = null;
+    const dir = e.type === 'pointerup' && horizontal && Math.abs(dx) > Math.min(80, innerWidth * 0.2) ? (dx < 0 ? 1 : -1) : 0;
+    if (dir && i + dir >= 0 && i + dir < list.length) {
+      img.style.transition = 'transform .15s ease-in';
+      img.style.transform = `translateX(${-dir * 100}%)`;
+      go(dir);
+    } else reset();
+  };
+  img.addEventListener('pointerup', release);
+  img.addEventListener('pointercancel', release);
+
+  const onKey = (e) => {
+    if (e.key === 'ArrowRight') go(1);
+    else if (e.key === 'ArrowLeft') go(-1);
+    else if (e.key === 'Escape') close();
+  };
+  document.addEventListener('keydown', onKey);
+  const close = () => {
+    token++;
+    el.remove();
+    document.removeEventListener('keydown', onKey);
+    if (url) URL.revokeObjectURL(url);
+    if (changed) render();
+  };
   el.querySelector('#vclose').onclick = close;
   el.querySelector('#vdel').onclick = async () => {
     if (!confirm('Supprimer cette photo ?')) return;
-    await db.deletePhoto(photo.id);
-    close();
-    render();
+    await db.deletePhoto(list[i].id);
+    list.splice(i, 1);
+    changed = true;
+    toast('Photo supprimée.');
+    if (!list.length) { close(); return; }
+    // La suivante prend la place de la photo supprimée ; à défaut, la précédente.
+    if (i < list.length) show(i, 1);
+    else show(list.length - 1, -1);
   };
+  await show(i);
 }
 
 // ---------- Écran : réglages ----------
